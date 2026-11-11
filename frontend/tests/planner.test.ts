@@ -22,6 +22,7 @@ const mockEvents: EventWithTiers[] = [
     starts_at: "2026-11-17T18:00:00-08:00", // Tuesday
     ends_at: "2026-11-17T21:00:00-08:00",
     refund_policy_text: "Standard refund",
+    refund_rule: null,
     standby_count: 0,
     ticket_tiers: [
       {
@@ -57,6 +58,7 @@ const mockEvents: EventWithTiers[] = [
     starts_at: "2026-11-19T10:00:00-08:00", // Thursday
     ends_at: "2026-11-19T13:00:00-08:00",
     refund_policy_text: "Standard refund",
+    refund_rule: null,
     standby_count: 0,
     ticket_tiers: [
       {
@@ -82,6 +84,7 @@ const mockEvents: EventWithTiers[] = [
     starts_at: "2026-11-15T18:30:00-08:00", // Sunday (weekend)
     ends_at: "2026-11-15T21:00:00-08:00",
     refund_policy_text: "Standard refund",
+    refund_rule: null,
     standby_count: 0,
     ticket_tiers: [
       {
@@ -107,6 +110,7 @@ const mockEvents: EventWithTiers[] = [
     starts_at: "2026-11-21T09:30:00-08:00", // Saturday (weekend)
     ends_at: "2026-11-21T16:00:00-08:00",
     refund_policy_text: "Standard refund",
+    refund_rule: null,
     standby_count: 0,
     ticket_tiers: [
       {
