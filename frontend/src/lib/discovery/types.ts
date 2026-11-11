@@ -1,6 +1,13 @@
-import type { EventWithTiers, Tier } from "@/lib/types";
+import type { EventWithTiers, MyStandbyRequest, Tier } from "@/lib/types";
 
 export type ChatRole = "user" | "assistant";
+
+export type PlannerIntent =
+  | "discover"
+  | "my_tickets"
+  | "upcoming"
+  | "standby_status"
+  | "other";
 
 export type BudgetSummary = {
   breakdown: string;
@@ -29,12 +36,62 @@ export type StandbyActionProposal = {
 
 export type ActionProposal = PurchaseActionProposal | StandbyActionProposal;
 
+export type GroupedTicketItem = {
+  eventId: string;
+  eventTitle: string;
+  venue: string;
+  city: string;
+  timezone: string;
+  startsAt: string;
+  endsAt: string;
+  tierId: string;
+  tierName: string;
+  quantity: number;
+  totalPriceCents: number;
+  status: "valid" | "released" | "transferred";
+  ticketNumbers: string[];
+  howSoon?: string;
+  overlapsWith?: string[];
+};
+
+export type UserTicketsPayload = {
+  upcoming: GroupedTicketItem[];
+  past: GroupedTicketItem[];
+  other: GroupedTicketItem[];
+};
+
+export type UpcomingSchedulePayload = {
+  nextEvent?: GroupedTicketItem;
+  events: GroupedTicketItem[];
+  hasOverlaps: boolean;
+};
+
+export type StandbyStatusItem = {
+  id: string;
+  eventId: string;
+  eventTitle: string;
+  venue: string;
+  timezone: string;
+  startsAt: string;
+  tiersSummary: string;
+  quantity: number;
+  status: MyStandbyRequest["status"];
+  statusDescription: string;
+  authorizedCents: number;
+  isHoldActive: boolean;
+};
+
 export type ChatMessage = {
   id: string;
   role: ChatRole;
   content: string;
+  intent?: PlannerIntent;
   events?: EventWithTiers[];
   budgetSummary?: BudgetSummary;
+  userTickets?: UserTicketsPayload;
+  upcomingSchedule?: UpcomingSchedulePayload;
+  standbySummary?: StandbyStatusItem[];
+  requiresAuth?: boolean;
   clarification?: boolean;
   actionProposal?: ActionProposal;
   createdAt: string;

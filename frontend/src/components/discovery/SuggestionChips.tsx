@@ -5,10 +5,10 @@ import { Button } from "@/components/ui/button";
 
 const SUGGESTIONS = [
   "Find me two AI workshops this weekend, with a total ticket budget of $40",
-  "AI workshops under $40",
+  "What tickets do I have?",
+  "What's coming up next for me?",
+  "Check my standby status",
   "Free events this week",
-  "Something on Friday evening",
-  "Beginner-friendly coding events under $15 each",
 ];
 
 export function SuggestionChips({

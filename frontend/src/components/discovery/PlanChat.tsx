@@ -4,6 +4,12 @@ import { useState, useRef, useEffect } from "react";
 import { Sparkles, Send, RotateCcw, AlertCircle, Bot, User } from "lucide-react";
 import { BuyDialog } from "@/components/checkout/BuyDialog";
 import { ActionPrompt } from "@/components/discovery/ActionPrompt";
+import {
+  AuthPromptView,
+  StandbySummaryView,
+  UpcomingScheduleView,
+  UserTicketsView,
+} from "@/components/discovery/PersonalScheduleViews";
 import { SuggestionChips } from "@/components/discovery/SuggestionChips";
 import { EventCard } from "@/components/events/EventCard";
 import { usePersona } from "@/components/shell/PersonaProvider";
@@ -299,6 +305,20 @@ export function PlanChat() {
                   )}
                 </div>
 
+                {/* Auth prompt if persona required */}
+                {message.requiresAuth && <AuthPromptView />}
+
+                {/* User Tickets view */}
+                {message.userTickets && <UserTicketsView tickets={message.userTickets} />}
+
+                {/* Upcoming schedule view */}
+                {message.upcomingSchedule && (
+                  <UpcomingScheduleView schedule={message.upcomingSchedule} />
+                )}
+
+                {/* Standby requests view */}
+                {message.standbySummary && <StandbySummaryView items={message.standbySummary} />}
+
                 {/* Event Cards Grid */}
                 {message.events && message.events.length > 0 && (
                   <div className="w-full grid gap-3 sm:grid-cols-2 pt-1">
@@ -377,6 +397,33 @@ export function PlanChat() {
       {/* Follow-up Quick Chips */}
       {messages.length > 0 && !loading && (
         <div className="px-4 py-2 border-t bg-muted/20 flex flex-wrap gap-1.5">
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            onClick={() => sendMessage("What tickets do I have?")}
+            className="text-xs h-6 px-2.5 rounded-full border border-border bg-background hover:bg-muted"
+          >
+            My tickets
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            onClick={() => sendMessage("What's coming up for me?")}
+            className="text-xs h-6 px-2.5 rounded-full border border-border bg-background hover:bg-muted"
+          >
+            What&apos;s next
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            onClick={() => sendMessage("What's happening with my standby?")}
+            className="text-xs h-6 px-2.5 rounded-full border border-border bg-background hover:bg-muted"
+          >
+            Standby status
+          </Button>
           <Button
             type="button"
             variant="ghost"

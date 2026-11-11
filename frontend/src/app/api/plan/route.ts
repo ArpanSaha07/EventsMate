@@ -1,4 +1,5 @@
 import { listEvents } from "@/lib/events";
+import { getCurrentProfile } from "@/lib/session";
 import { planEvents } from "@/lib/discovery/planner";
 import type { PlanApiRequest } from "@/lib/discovery/types";
 
@@ -9,8 +10,12 @@ export async function POST(req: Request) {
       return Response.json({ error: "Messages array is required." }, { status: 400 });
     }
 
-    const events = await listEvents();
-    const result = await planEvents(body.messages, events, body.preferences ?? {});
+    const [events, profile] = await Promise.all([
+      listEvents(),
+      getCurrentProfile(),
+    ]);
+
+    const result = await planEvents(body.messages, events, body.preferences ?? {}, profile);
 
     return Response.json(result);
   } catch (err) {

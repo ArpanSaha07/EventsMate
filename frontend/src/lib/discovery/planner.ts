@@ -1,16 +1,26 @@
 import "server-only";
+import { formatEventDay, formatEventTimeRange } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
-import type { EventWithTiers, Tier } from "@/lib/types";
+import type { Profile } from "@/lib/session";
+import { listMyStandbyRequests } from "@/lib/standby";
+import { listMyTickets } from "@/lib/tickets";
+import type { EventWithTiers, MyStandbyRequest, MyTicket, Tier } from "@/lib/types";
 import { getOpenAIClient, getOpenAIModel } from "@/lib/discovery/openai";
 import type {
   ActionProposal,
   BudgetSummary,
   ChatMessage,
+  GroupedTicketItem,
   PlanApiResponse,
+  PlannerIntent,
   SessionPreferences,
+  StandbyStatusItem,
+  UpcomingSchedulePayload,
+  UserTicketsPayload,
 } from "@/lib/discovery/types";
 
 export type ExtractedConstraints = {
+  intent?: PlannerIntent;
   topics?: string[];
   category?: string;
   dateType?: "weekend" | "today" | "tomorrow" | "friday_evening" | "this_week" | "any";
@@ -75,6 +85,29 @@ export function getNowInTimezone(tz = "America/Los_Angeles"): {
   return { year, month, day, dayOfWeek, hours, dateStr };
 }
 
+/** Format relative human-readable time to an event start. */
+export function formatHowSoon(startsAtIso: string, endsAtIso: string, now: Date): string {
+  const start = new Date(startsAtIso).getTime();
+  const end = new Date(endsAtIso).getTime();
+  const nowMs = now.getTime();
+
+  if (start <= nowMs && nowMs < end) {
+    return "Happening now";
+  }
+
+  const diffMs = start - nowMs;
+  if (diffMs <= 0) return "Started";
+
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffHours < 1) return "in less than an hour";
+  if (diffHours === 1) return "in 1 hour";
+  if (diffHours < 24) return `in ${diffHours} hours`;
+  if (diffDays === 1) return "tomorrow";
+  return `in ${diffDays} days`;
+}
+
 /** Check if an event matches a relative date constraint in its local timezone. */
 export function matchesDateConstraint(
   eventStartsAtIso: string,
@@ -132,13 +165,15 @@ export function matchesDateConstraint(
   }
 
   if (dateType === "tomorrow") {
-    // Check if event is the following day
-    const diffDays = Math.round((new Date(evYear, evMonth - 1, evDay).getTime() - new Date(nowTz.year, nowTz.month - 1, nowTz.day).getTime()) / (1000 * 60 * 60 * 24));
+    const diffDays = Math.round(
+      (new Date(evYear, evMonth - 1, evDay).getTime() -
+        new Date(nowTz.year, nowTz.month - 1, nowTz.day).getTime()) /
+        (1000 * 60 * 60 * 24),
+    );
     return diffDays === 1;
   }
 
   if (dateType === "weekend") {
-    // Saturday or Sunday
     return evDayOfWeek === 0 || evDayOfWeek === 6;
   }
 
@@ -147,7 +182,11 @@ export function matchesDateConstraint(
   }
 
   if (dateType === "this_week") {
-    const diffDays = Math.round((new Date(evYear, evMonth - 1, evDay).getTime() - new Date(nowTz.year, nowTz.month - 1, nowTz.day).getTime()) / (1000 * 60 * 60 * 24));
+    const diffDays = Math.round(
+      (new Date(evYear, evMonth - 1, evDay).getTime() -
+        new Date(nowTz.year, nowTz.month - 1, nowTz.day).getTime()) /
+        (1000 * 60 * 60 * 24),
+    );
     return diffDays >= 0 && diffDays <= 7;
   }
 
@@ -172,7 +211,9 @@ export function isEventSoldOut(event: EventWithTiers): boolean {
 export function calculateRelevanceScore(event: EventWithTiers, topics: string[] = []): number {
   if (topics.length === 0) return 1;
   let score = 0;
-  const searchable = `${event.title} ${event.description} ${event.category} ${event.venue} ${event.ticket_tiers.map((t) => `${t.name} ${t.description}`).join(" ")}`.toLowerCase();
+  const searchable = `${event.title} ${event.description} ${event.category} ${event.venue} ${event.ticket_tiers
+    .map((t) => `${t.name} ${t.description}`)
+    .join(" ")}`.toLowerCase();
 
   for (const topic of topics) {
     const t = topic.toLowerCase().trim();
@@ -180,7 +221,6 @@ export function calculateRelevanceScore(event: EventWithTiers, topics: string[] 
     if (searchable.includes(t)) {
       score += 5;
     }
-    // Partial word match
     const words = t.split(/\s+/);
     for (const w of words) {
       if (w.length >= 3 && searchable.includes(w)) {
@@ -191,45 +231,120 @@ export function calculateRelevanceScore(event: EventWithTiers, topics: string[] 
   return score;
 }
 
-/** Extract structured constraints using OpenAI function calling or JSON mode. */
+/** Keyword fallback intent classifier that never routes discover requests to data handlers. */
+export function fallbackClassifyIntent(text: string): PlannerIntent {
+  const lower = text.toLowerCase().trim();
+
+  // my_tickets keywords
+  if (
+    lower.includes("my ticket") ||
+    lower.includes("my tickets") ||
+    lower.includes("tickets do i have") ||
+    lower.includes("tickets i have") ||
+    lower.includes("what did i buy") ||
+    lower.includes("tickets have i bought") ||
+    lower.includes("show my ticket") ||
+    lower.includes("payment go through") ||
+    lower.includes("tickets i bought")
+  ) {
+    return "my_tickets";
+  }
+
+  // upcoming personal schedule keywords
+  if (
+    lower.includes("attend next") ||
+    lower.includes("event is next") ||
+    lower.includes("event should i attend") ||
+    lower.includes("which event is next") ||
+    lower.includes("coming up for me") ||
+    lower.includes("what's next for me") ||
+    lower.includes("whats next for me") ||
+    lower.includes("my schedule") ||
+    lower.includes("do i have this week") ||
+    lower.includes("what do i have")
+  ) {
+    return "upcoming";
+  }
+
+  // standby_status keywords
+  if (
+    lower.includes("my standby") ||
+    lower.includes("standby status") ||
+    lower.includes("on standby") ||
+    lower.includes("my waitlist") ||
+    lower.includes("with my standby")
+  ) {
+    return "standby_status";
+  }
+
+  // General small talk
+  if (lower === "hello" || lower === "hi" || lower === "hey" || lower === "who are you") {
+    return "other";
+  }
+
+  // Default to discover (safe: never sends to data handlers)
+  return "discover";
+}
+
+/** Fallback regex/keyword extraction if LLM call is unavailable. */
+export function fallbackExtract(text: string, prefs: SessionPreferences): ExtractedConstraints {
+  const intent = fallbackClassifyIntent(text);
+  const lower = text.toLowerCase();
+  const countMatch = lower.match(/\b(two|2)\b/);
+  const count = countMatch ? 2 : lower.match(/\b(three|3)\b/) ? 3 : lower.match(/\b(one|1)\b/) ? 1 : prefs.count ?? null;
+  const budgetMatch = lower.match(/\$(\d+)/);
+  const totalBudgetCents = budgetMatch ? parseInt(budgetMatch[1], 10) * 100 : prefs.totalBudgetCents ?? null;
+  const freeOnly = lower.includes("free");
+  const isWeekend = lower.includes("weekend");
+  const isSaturday = lower.includes("saturday");
+
+  return {
+    intent,
+    topics: lower.includes("ai") ? ["AI", "workshop"] : prefs.topics ?? [],
+    category: lower.includes("workshop") ? "Workshop" : lower.includes("meetup") ? "Meetup" : prefs.category,
+    dateType: isWeekend ? "weekend" : "any",
+    targetDayOfWeek: isSaturday ? 6 : undefined,
+    count,
+    totalBudgetCents,
+    freeOnly,
+    followUpIntent: lower.includes("cheaper") ? "cheaper" : lower.includes("something else") ? "different" : null,
+  };
+}
+
+/** Extract structured constraints and classify intent using OpenAI function calling or JSON mode. */
 export async function extractConstraints(
   messages: Array<{ role: "user" | "assistant"; content: string }>,
   currentPreferences: SessionPreferences = {},
 ): Promise<ExtractedConstraints> {
   const nowTz = getNowInTimezone("America/Los_Angeles");
 
-  const systemPrompt = `You are the event discovery assistant for EventsMate.
+  const systemPrompt = `You are the event discovery and schedule assistant for EventsMate.
 Current Date in San Francisco (America/Los_Angeles): ${nowTz.dateStr} (Day of week: ${["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][nowTz.dayOfWeek]}).
 
-Your job is to parse the user's latest query and conversation history into structured event search constraints.
-Categories in this app include: "Workshop", "Meetup", "Hackathon".
-Events are located in San Francisco and priced in USD.
+Your job is to parse the user's latest query and conversation history into:
+1. "intent": One of:
+   - "discover": Searching, finding, browsing, or asking to buy events ("find me events", "any workshops", "make it cheaper", "only saturday").
+   - "my_tickets": Asking about tickets they already bought ("what tickets do I have", "show my tickets", "did my payment go through", "what did I buy").
+   - "upcoming": Asking what event they should attend next or their upcoming schedule ("which event is next", "what's coming up for me", "what do I have this week").
+   - "standby_status": Asking about their standby requests or holds ("what's happening with my standby", "check my standby", "status of my hold").
+   - "other": General greeting, small talk, or incomprehensible request.
+   Important: Keep previous intent for follow-ups in context (e.g. if previous message was about upcoming tickets, "and next week?" remains "upcoming").
 
-Return a JSON object conforming to this schema:
-{
-  "topics": string[],                // e.g. ["AI", "workshop", "beginner", "coding", "agents"]
-  "category": string | null,         // e.g. "Workshop", "Meetup", "Hackathon"
-  "dateType": "weekend" | "today" | "tomorrow" | "friday_evening" | "this_week" | "any",
-  "targetDayOfWeek": number | null,  // 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat if a specific day is requested (e.g. "only Saturday" -> 6)
-  "totalBudgetCents": number | null, // in integer cents, e.g. $40 -> 4000, $15 -> 1500
-  "perTicketBudgetCents": number | null,
-  "count": number | null,            // number of events requested, e.g. "two workshops" -> 2
-  "freeOnly": boolean,               // true if user asked for "free" events
-  "followUpIntent": "cheaper" | "different" | "filter_date" | "filter_category" | null,
-  "needsClarification": boolean,     // true ONLY if the request is completely incomprehensible or vague with no intent discernible
-  "clarifyingQuestion": string | null,
-  "assumptions": string | null       // brief note of sensible assumptions made (e.g. "Assuming you want 2 upcoming AI workshops.")
-}
+2. Search constraints (when intent is "discover"):
+   - topics: string[]
+   - category: string | null ("Workshop", "Meetup", "Hackathon")
+   - dateType: "weekend" | "today" | "tomorrow" | "friday_evening" | "this_week" | "any"
+   - targetDayOfWeek: number | null (0=Sun, 6=Sat)
+   - totalBudgetCents: integer cents (e.g. $40 -> 4000)
+   - perTicketBudgetCents: integer cents
+   - count: integer number of events requested
+   - freeOnly: boolean
+   - followUpIntent: "cheaper" | "different" | "filter_date" | "filter_category" | null
+   - needsClarification: boolean
+   - clarifyingQuestion: string | null
+   - assumptions: string | null
 
-Important Rules:
-- If the user says "Find me two AI workshops this weekend, with a total ticket budget of $40":
-  topics=["AI", "workshop"], category="Workshop", count=2, totalBudgetCents=4000, dateType="weekend".
-- If the user says "make it cheaper", followUpIntent="cheaper".
-- If the user says "only Saturday", targetDayOfWeek=6, followUpIntent="filter_date".
-- If the user says "show me something else", followUpIntent="different".
-- If the user says "Something free on Friday evening", freeOnly=true, dateType="friday_evening".
-- If the user says "Beginner-friendly coding events under $15 each", topics=["beginner", "coding"], perTicketBudgetCents=1500.
-- If no date or budget is given, do NOT ask for clarification unless the query is completely empty. Proceed with sensible defaults (upcoming dates, any budget) and state the assumption.`;
+Return a valid JSON object matching this schema.`;
 
   try {
     const client = getOpenAIClient();
@@ -251,7 +366,18 @@ Important Rules:
     const content = response.choices[0]?.message?.content ?? "{}";
     const parsed = JSON.parse(content);
 
+    const validIntents: PlannerIntent[] = [
+      "discover",
+      "my_tickets",
+      "upcoming",
+      "standby_status",
+      "other",
+    ];
+    const rawIntent = parsed.intent;
+    const intent: PlannerIntent = validIntents.includes(rawIntent) ? rawIntent : "discover";
+
     return {
+      intent,
       topics: Array.isArray(parsed.topics) ? parsed.topics : [],
       category: typeof parsed.category === "string" ? parsed.category : undefined,
       dateType: parsed.dateType ?? "any",
@@ -267,33 +393,162 @@ Important Rules:
     };
   } catch (err) {
     console.error("OpenAI constraint extraction error:", err);
-    // Deterministic fallback if LLM extraction fails
     const lastUserMsg = messages.filter((m) => m.role === "user").slice(-1)[0]?.content || "";
     return fallbackExtract(lastUserMsg, currentPreferences);
   }
 }
 
-/** Fallback regex/keyword extraction if LLM call is unavailable. */
-function fallbackExtract(text: string, prefs: SessionPreferences): ExtractedConstraints {
-  const lower = text.toLowerCase();
-  const countMatch = lower.match(/\b(two|2)\b/);
-  const count = countMatch ? 2 : lower.match(/\b(three|3)\b/) ? 3 : lower.match(/\b(one|1)\b/) ? 1 : prefs.count ?? null;
-  const budgetMatch = lower.match(/\$(\d+)/);
-  const totalBudgetCents = budgetMatch ? parseInt(budgetMatch[1], 10) * 100 : prefs.totalBudgetCents ?? null;
-  const freeOnly = lower.includes("free");
-  const isWeekend = lower.includes("weekend");
-  const isSaturday = lower.includes("saturday");
+/** Group identical valid tickets and partition into upcoming, past, and other. */
+export function groupTickets(tickets: MyTicket[], now: Date = new Date()): UserTicketsPayload {
+  const validTickets = tickets.filter((t) => t.status === "valid");
+  const otherTickets = tickets.filter((t) => t.status !== "valid");
+
+  function groupList(list: MyTicket[]): GroupedTicketItem[] {
+    const map = new Map<string, GroupedTicketItem>();
+
+    for (const t of list) {
+      const key = `${t.event.id}:${t.tier.id}:${t.status}`;
+      const existing = map.get(key);
+      if (existing) {
+        existing.quantity += 1;
+        existing.totalPriceCents += t.unit_price_cents;
+        existing.ticketNumbers.push(t.ticket_number);
+      } else {
+        map.set(key, {
+          eventId: t.event.id,
+          eventTitle: t.event.title,
+          venue: t.event.venue,
+          city: t.event.city,
+          timezone: t.event.timezone,
+          startsAt: t.event.starts_at,
+          endsAt: t.event.ends_at,
+          tierId: t.tier.id,
+          tierName: t.tier.name,
+          quantity: 1,
+          totalPriceCents: t.unit_price_cents,
+          status: t.status,
+          ticketNumbers: [t.ticket_number],
+        });
+      }
+    }
+    return Array.from(map.values());
+  }
+
+  const groupedValid = groupList(validTickets);
+  const nowMs = now.getTime();
+
+  // Upcoming: ends_at >= now (including starts_at <= now < ends_at as "Happening now")
+  const upcomingRaw = groupedValid.filter((g) => new Date(g.endsAt).getTime() >= nowMs);
+  const pastRaw = groupedValid.filter((g) => new Date(g.endsAt).getTime() < nowMs);
+
+  const upcoming = upcomingRaw.map((item) => ({
+    ...item,
+    howSoon: formatHowSoon(item.startsAt, item.endsAt, now),
+  }));
+
+  upcoming.sort((a, b) => {
+    const aNow = a.howSoon === "Happening now";
+    const bNow = b.howSoon === "Happening now";
+    if (aNow && !bNow) return -1;
+    if (!aNow && bNow) return 1;
+    return new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime();
+  });
+
+  pastRaw.sort((a, b) => new Date(b.startsAt).getTime() - new Date(a.startsAt).getTime());
+
+  const other = groupList(otherTickets);
+  other.sort((a, b) => new Date(b.startsAt).getTime() - new Date(a.startsAt).getTime());
 
   return {
-    topics: lower.includes("ai") ? ["AI", "workshop"] : prefs.topics ?? [],
-    category: lower.includes("workshop") ? "Workshop" : lower.includes("meetup") ? "Meetup" : prefs.category,
-    dateType: isWeekend ? "weekend" : "any",
-    targetDayOfWeek: isSaturday ? 6 : undefined,
-    count,
-    totalBudgetCents,
-    freeOnly,
-    followUpIntent: lower.includes("cheaper") ? "cheaper" : lower.includes("something else") ? "different" : null,
+    upcoming,
+    past: pastRaw,
+    other,
   };
+}
+
+/** Check for schedule overlaps in valid upcoming ticket items. */
+export function detectScheduleOverlaps(items: GroupedTicketItem[]): UpcomingSchedulePayload {
+  const events = items.map((item) => ({ ...item, overlapsWith: [] as string[] }));
+  let hasOverlaps = false;
+
+  for (let i = 0; i < events.length; i++) {
+    for (let j = i + 1; j < events.length; j++) {
+      const a = events[i];
+      const b = events[j];
+      if (a.eventId === b.eventId) continue;
+
+      const aStart = new Date(a.startsAt).getTime();
+      const aEnd = new Date(a.endsAt).getTime();
+      const bStart = new Date(b.startsAt).getTime();
+      const bEnd = new Date(b.endsAt).getTime();
+
+      // Overlap: aStart < bEnd && bStart < aEnd
+      if (aStart < bEnd && bStart < aEnd) {
+        hasOverlaps = true;
+        if (!a.overlapsWith.includes(b.eventTitle)) a.overlapsWith.push(b.eventTitle);
+        if (!b.overlapsWith.includes(a.eventTitle)) b.overlapsWith.push(a.eventTitle);
+      }
+    }
+  }
+
+  return {
+    nextEvent: events[0] ?? undefined,
+    events,
+    hasOverlaps,
+  };
+}
+
+/** Format standby requests with plain-language wording depending on status. */
+export function formatStandbyStatus(requests: MyStandbyRequest[]): StandbyStatusItem[] {
+  return requests.map((req) => {
+    let statusDescription = "";
+    let isHoldActive = false;
+
+    switch (req.status) {
+      case "authorized":
+        statusDescription =
+          "A hold is placed with no upfront charge. Your ticket will be issued automatically if a seat becomes available.";
+        isHoldActive = true;
+        break;
+      case "matched":
+      case "settled":
+        statusDescription =
+          "A released seat was matched to you! Your ticket was issued and charged at the actual tier price.";
+        break;
+      case "draft":
+        statusDescription = "Draft request. Nothing has been held or charged.";
+        break;
+      case "cancelled":
+        statusDescription = "Request cancelled. Nothing is being held or charged.";
+        break;
+      case "expired":
+        statusDescription =
+          "Expired at release cutoff (2 hours before event). Nothing was charged.";
+        break;
+      case "failed":
+        statusDescription = "Authorization failed. Nothing is being held or charged.";
+        break;
+      default:
+        statusDescription = "Nothing is being held or charged.";
+    }
+
+    const tiersSummary = req.tiers.map((t) => t.name).join(", ");
+
+    return {
+      id: req.id,
+      eventId: req.event.id,
+      eventTitle: req.event.title,
+      venue: req.event.venue,
+      timezone: req.event.timezone,
+      startsAt: req.event.starts_at,
+      tiersSummary: tiersSummary || "Any tier",
+      quantity: req.quantity,
+      status: req.status,
+      statusDescription,
+      authorizedCents: req.authorized_cents,
+      isHoldActive,
+    };
+  });
 }
 
 /** Deterministic filtering and combination solving. */
@@ -301,11 +556,13 @@ export function findMatchingEvents(
   allEvents: EventWithTiers[],
   constraints: ExtractedConstraints,
   previousEventIds: string[] = [],
+  excludedOwnedEventIds: string[] = [],
 ): {
   matchedEvents: EventWithTiers[];
   budgetSummary?: BudgetSummary;
   dateRelaxed: boolean;
   soldOutExcluded: boolean;
+  ownedExcludedCount: number;
   notes: string[];
 } {
   const notes: string[] = [];
@@ -317,6 +574,14 @@ export function findMatchingEvents(
     }
     return true;
   });
+
+  // Filter 1b: Exclude events the user already holds a ticket for
+  let ownedExcludedCount = 0;
+  if (excludedOwnedEventIds.length > 0) {
+    const beforeCount = candidates.length;
+    candidates = candidates.filter((ev) => !excludedOwnedEventIds.includes(ev.id));
+    ownedExcludedCount = beforeCount - candidates.length;
+  }
 
   // Filter 2: Free only
   if (constraints.freeOnly) {
@@ -361,7 +626,6 @@ export function findMatchingEvents(
 
   const desiredCount = constraints.count ?? (constraints.totalBudgetCents ? 2 : 3);
 
-  // If strict date filter doesn't yield enough events, relax date constraint to closest upcoming events
   if (dateFiltered.length < desiredCount && constraints.dateType && constraints.dateType !== "any") {
     dateRelaxed = true;
     notes.push(
@@ -391,7 +655,6 @@ export function findMatchingEvents(
   // Deterministic Budget Combination Finder
   let targetBudgetCents = constraints.totalBudgetCents ?? null;
 
-  // If follow-up is "cheaper", reduce budget
   if (constraints.followUpIntent === "cheaper" && targetBudgetCents) {
     targetBudgetCents = Math.round(targetBudgetCents * 0.75);
     notes.push(`Adjusted target budget to under ${formatMoney(targetBudgetCents)}.`);
@@ -401,12 +664,10 @@ export function findMatchingEvents(
   let budgetSummary: BudgetSummary | undefined = undefined;
 
   if (targetBudgetCents !== null && desiredCount > 1) {
-    // Find combination of length `desiredCount` where sum(lowestTier.price_cents) <= targetBudgetCents
     const n = scored.length;
     let bestCombo: typeof scored | null = null;
     let bestScore = -1;
 
-    // Helper to generate combinations of length k
     function testCombinations(start: number, currentCombo: typeof scored, currentSum: number) {
       if (currentCombo.length === desiredCount) {
         if (currentSum <= targetBudgetCents!) {
@@ -446,13 +707,11 @@ export function findMatchingEvents(
         budgetCents: targetBudgetCents,
       };
     } else {
-      // No combination fit within budget!
       notes.push(
         `We couldn't find ${desiredCount} events with a combined price under ${formatMoney(targetBudgetCents)}.`,
       );
     }
   } else {
-    // Single event or no total budget constraint
     const eligible = scored.filter((s) => {
       if (targetBudgetCents && s.lowestTier!.price_cents > targetBudgetCents) return false;
       return true;
@@ -481,33 +740,223 @@ export function findMatchingEvents(
     budgetSummary,
     dateRelaxed,
     soldOutExcluded,
+    ownedExcludedCount,
     notes,
   };
 }
 
-/** Execute planner pipeline: extraction -> deterministic matching & math -> explanation. */
+/** Execute planner pipeline: intent classification -> deterministic handlers -> explanation. */
 export async function planEvents(
   messages: Array<{ role: "user" | "assistant"; content: string }>,
   allEvents: EventWithTiers[],
   currentPreferences: SessionPreferences = {},
+  profile?: Profile | null,
 ): Promise<PlanApiResponse> {
-  // 1. Extract constraints
   const constraints = await extractConstraints(messages, currentPreferences);
+  const intent = constraints.intent ?? "discover";
 
-  // If user query is a clarifying question response or ambiguous
+  // Handle Intent 1: my_tickets
+  if (intent === "my_tickets") {
+    if (!profile) {
+      const authReply: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content:
+          "Please choose a demo person first (using the menu at the top right) to view your tickets.",
+        intent: "my_tickets",
+        requiresAuth: true,
+        createdAt: new Date().toISOString(),
+      };
+      return { message: authReply, preferences: currentPreferences };
+    }
+
+    const tickets = await listMyTickets(profile);
+    const grouped = groupTickets(tickets, new Date());
+
+    let content = "";
+    if (tickets.length === 0) {
+      content = "You don't have any tickets yet. Would you like me to recommend some upcoming events?";
+    } else {
+      const totalValidCount = [...grouped.upcoming, ...grouped.past].reduce(
+        (acc, g) => acc + g.quantity,
+        0,
+      );
+      content = `Here are the tickets for **${profile.name}** (${totalValidCount} valid ticket${
+        totalValidCount === 1 ? "" : "s"
+      }):`;
+
+      if (grouped.upcoming.length > 0) {
+        content += "\n\n**Upcoming:**";
+        for (const u of grouped.upcoming) {
+          content += `\n• **${u.eventTitle}** (${formatEventDay(u.startsAt, u.timezone)} · ${formatEventTimeRange(
+            u.startsAt,
+            u.endsAt,
+            u.timezone,
+          )}) — ${u.quantity} × ${u.tierName} (${formatMoney(u.totalPriceCents)})`;
+        }
+      }
+
+      if (grouped.past.length > 0) {
+        content += "\n\n**Past:**";
+        for (const p of grouped.past) {
+          content += `\n• **${p.eventTitle}** (${formatEventDay(p.startsAt, p.timezone)}) — ${p.quantity} × ${
+            p.tierName
+          } (${formatMoney(p.totalPriceCents)})`;
+        }
+      }
+
+      if (grouped.other.length > 0) {
+        content += "\n\n**Released / Transferred:**";
+        for (const o of grouped.other) {
+          content += `\n• **${o.eventTitle}** (${o.status === "released" ? "Released, still yours until resold" : "Transferred / resold"}) — ${o.quantity} × ${o.tierName}`;
+        }
+      }
+
+      content += "\n\nYou can view and manage all your tickets in [My tickets](/tickets).";
+    }
+
+    const reply: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: "assistant",
+      content,
+      intent: "my_tickets",
+      userTickets: grouped,
+      createdAt: new Date().toISOString(),
+    };
+    return { message: reply, preferences: currentPreferences };
+  }
+
+  // Handle Intent 2: upcoming schedule & overlap detection
+  if (intent === "upcoming") {
+    if (!profile) {
+      const authReply: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content:
+          "Please choose a demo person first (using the menu at the top right) to view your upcoming events.",
+        intent: "upcoming",
+        requiresAuth: true,
+        createdAt: new Date().toISOString(),
+      };
+      return { message: authReply, preferences: currentPreferences };
+    }
+
+    const tickets = await listMyTickets(profile);
+    const grouped = groupTickets(tickets, new Date());
+    const schedule = detectScheduleOverlaps(grouped.upcoming);
+
+    let content = "";
+    if (schedule.events.length === 0) {
+      content = "You don't have any upcoming ticketed events right now. Would you like me to find some upcoming events for you?";
+    } else {
+      const next = schedule.nextEvent!;
+      content = `Your next event is **"${next.eventTitle}"** (${next.howSoon}) at ${next.venue}.\nWhen: ${formatEventDay(
+        next.startsAt,
+        next.timezone,
+      )} · ${formatEventTimeRange(next.startsAt, next.endsAt, next.timezone)}.`;
+
+      if (schedule.events.length > 1) {
+        content += `\n\nYou have ${schedule.events.length} upcoming ticketed events scheduled in total.`;
+      }
+
+      if (schedule.hasOverlaps) {
+        content += "\n\n⚠️ **Schedule overlap alert:**";
+        for (const ev of schedule.events) {
+          if (ev.overlapsWith && ev.overlapsWith.length > 0) {
+            content += `\n• **${ev.eventTitle}** overlaps in time with **${ev.overlapsWith.join(", ")}**.`;
+          }
+        }
+      }
+
+      content += "\n\nYou can view all details in [My tickets](/tickets).";
+    }
+
+    const reply: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: "assistant",
+      content,
+      intent: "upcoming",
+      upcomingSchedule: schedule,
+      createdAt: new Date().toISOString(),
+    };
+    return { message: reply, preferences: currentPreferences };
+  }
+
+  // Handle Intent 3: standby_status
+  if (intent === "standby_status") {
+    if (!profile) {
+      const authReply: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content:
+          "Please choose a demo person first (using the menu at the top right) to check your standby status.",
+        intent: "standby_status",
+        requiresAuth: true,
+        createdAt: new Date().toISOString(),
+      };
+      return { message: authReply, preferences: currentPreferences };
+    }
+
+    const requests = await listMyStandbyRequests(profile);
+    const summaryItems = formatStandbyStatus(requests);
+
+    let content = "";
+    if (summaryItems.length === 0) {
+      content = "You don't have any standby requests right now. If an event sells out, you can join standby with a PayPal hold and no upfront charge.";
+    } else {
+      const activeCount = summaryItems.filter((s) => s.isHoldActive).length;
+      content = `Here is the standby status for **${profile.name}** (${activeCount} active hold${
+        activeCount === 1 ? "" : "s"
+      }):`;
+
+      for (const item of summaryItems) {
+        content += `\n\n• **${item.eventTitle}** (${item.quantity} seat${item.quantity === 1 ? "" : "s"} · ${
+          item.tiersSummary
+        })\n  Max hold: ${formatMoney(item.authorizedCents)} (authorized, not charged)\n  Status: ${
+          item.statusDescription
+        }`;
+      }
+
+      content += "\n\nYou can view and cancel holds anytime in [Standby](/standby).";
+    }
+
+    const reply: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: "assistant",
+      content,
+      intent: "standby_status",
+      standbySummary: summaryItems,
+      createdAt: new Date().toISOString(),
+    };
+    return { message: reply, preferences: currentPreferences };
+  }
+
+  // Handle Intent 4: other / general
+  if (intent === "other") {
+    const reply: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: "assistant",
+      content:
+        "Hi! I can help you discover upcoming events in San Francisco, review your purchased tickets, check what's on your schedule next, or see your standby status. What would you like to do?",
+      intent: "other",
+      createdAt: new Date().toISOString(),
+    };
+    return { message: reply, preferences: currentPreferences };
+  }
+
+  // Handle Intent 5: discover (Default event search & recommendation)
   if (constraints.needsClarification && constraints.clarifyingQuestion) {
     const reply: ChatMessage = {
       id: crypto.randomUUID(),
       role: "assistant",
       content: constraints.clarifyingQuestion,
       clarification: true,
+      intent: "discover",
       createdAt: new Date().toISOString(),
     };
     return { message: reply, preferences: currentPreferences };
   }
 
-  // 2. Deterministic filtering and arithmetic
-  // Collect event IDs shown in previous assistant messages for "show me something else"
   const previousEventIds: string[] = [];
   for (const m of messages) {
     if (m.role === "assistant" && (m as ChatMessage).events) {
@@ -517,19 +966,34 @@ export async function planEvents(
     }
   }
 
-  const { matchedEvents, budgetSummary, dateRelaxed, soldOutExcluded } = findMatchingEvents(
-    allEvents,
-    constraints,
-    previousEventIds,
-  );
+  // Find owned events to exclude from discover recommendations
+  const excludedOwnedEventIds: string[] = [];
+  if (profile) {
+    try {
+      const ownedTickets = await listMyTickets(profile);
+      for (const t of ownedTickets) {
+        if (t.status === "valid" && !excludedOwnedEventIds.includes(t.event.id)) {
+          excludedOwnedEventIds.push(t.event.id);
+        }
+      }
+    } catch (e) {
+      console.error("Could not load owned tickets for exclusion:", e);
+    }
+  }
 
-  // 3. Validation: Verify EVERY event ID exists in the real database events
+  const {
+    matchedEvents,
+    budgetSummary,
+    dateRelaxed,
+    soldOutExcluded,
+    ownedExcludedCount,
+  } = findMatchingEvents(allEvents, constraints, previousEventIds, excludedOwnedEventIds);
+
   const realEventMap = new Map(allEvents.map((e) => [e.id, e]));
   const validatedEvents = matchedEvents
     .map((e) => realEventMap.get(e.id))
     .filter((e): e is EventWithTiers => e !== undefined);
 
-  // 4. Update session preferences
   const updatedPreferences: SessionPreferences = {
     ...currentPreferences,
     topics: constraints.topics?.length ? constraints.topics : currentPreferences.topics,
@@ -543,15 +1007,13 @@ export async function planEvents(
       : currentPreferences.dateRange,
   };
 
-  // 5. Generate friendly explanation
   let explanation = "";
   let actionProposal: ActionProposal | undefined = undefined;
 
   if (validatedEvents.length === 0) {
-    // Honest "nothing found" answer with suggested alternatives
     const freeEvents = allEvents.filter((e) => {
       const t = getLowestTier(e);
-      return t && t.price_cents === 0;
+      return t && t.price_cents === 0 && !excludedOwnedEventIds.includes(e.id);
     });
 
     explanation = `We couldn't find any events matching your exact criteria (${[
@@ -564,12 +1026,11 @@ export async function planEvents(
       .join(", ")}).`;
 
     if (freeEvents.length > 0) {
-      explanation += `\n\nWould you like to check out some of our popular free events like "${freeEvents[0].title}" instead, or try relaxing your budget or dates?`;
+      explanation += `\n\nWould you like to check out some popular free events like "${freeEvents[0].title}" instead, or try relaxing your budget or dates?`;
     } else {
       explanation += `\n\nTry adjusting your budget or searching for broader categories like "AI" or "Workshop".`;
     }
   } else {
-    // Success response
     const eventNames = validatedEvents.map((e) => `"${e.title}"`).join(" and ");
     const countWord = validatedEvents.length === 1 ? "event" : "events";
 
@@ -593,13 +1054,15 @@ export async function planEvents(
       explanation += `\n\n*(Note: Some sold-out events were excluded from this recommendation).*`;
     }
 
-    // Determine purchase or standby action in code
+    if (ownedExcludedCount > 0) {
+      explanation += `\n\n*(Note: Events you already hold a ticket for were excluded from recommendations).*`;
+    }
+
     const primaryEvent = validatedEvents[0];
     const availableTiers = primaryEvent.ticket_tiers.filter((t) => t.sold_count < t.capacity);
     const soldOutTiers = primaryEvent.ticket_tiers.filter((t) => t.sold_count >= t.capacity);
 
     if (availableTiers.length === 0) {
-      // Event is full
       explanation += `\n\n**"${primaryEvent.title}" is currently full.**\nDo you want me to join the standby list so you get a ticket as soon as one becomes available? (A hold is placed with no upfront charge, and your ticket is issued automatically if a seat becomes available).`;
       actionProposal = {
         type: "standby",
@@ -611,7 +1074,6 @@ export async function planEvents(
         status: "pending",
       };
     } else {
-      // Seats available
       if (soldOutTiers.length > 0) {
         explanation += `\n\n*(Note: Some tiers like ${soldOutTiers.map((t) => `"${t.name}"`).join(", ")} are sold out, but standby is available if you prefer those).*`;
       }
@@ -632,6 +1094,7 @@ export async function planEvents(
     id: crypto.randomUUID(),
     role: "assistant",
     content: explanation,
+    intent: "discover",
     events: validatedEvents.length > 0 ? validatedEvents : undefined,
     budgetSummary: budgetSummary ?? undefined,
     actionProposal,
