@@ -63,6 +63,18 @@ export type TicketRefund = {
   next: { at: string; refund_cents: number; terms: string } | null;
 };
 
+/** Where a released seat's resale stands, for its holder. */
+export type TicketResale = {
+  /** in_progress: a fan was matched and the money is moving. resold: refunded and transferred. */
+  state: "in_progress" | "resold";
+  refund_cents: number;
+  /** The rule applied, in plain words. */
+  refund_terms: string;
+  /** PayPal's refund reference. Set only once the refund has completed. */
+  refund_id: string | null;
+  resold_at: string | null;
+};
+
 export type MyTicket = {
   id: string;
   ticket_number: string;
@@ -81,6 +93,10 @@ export type MyTicket = {
   refund: TicketRefund | null;
   /** Unmatched released seats return to the holder at this moment. */
   release_cutoff_at: string;
+  /** Set once the agent has matched this seat to a fan. */
+  resale: TicketResale | null;
+  /** This ticket came from a standby match rather than a direct purchase. */
+  from_standby: boolean;
   tier: { id: string; name: string };
   event: {
     id: string;
@@ -112,6 +128,10 @@ export type MyStandbyRequest = {
   status: StandbyStatus;
   /** The PayPal hold: quantity x the most expensive accepted tier. */
   authorized_cents: number;
+  /** What was actually charged once seats were found. Null until PayPal confirmed the capture. */
+  captured_cents: number | null;
+  /** PayPal's capture reference, once charged. */
+  capture_id: string | null;
   authorized_at: string | null;
   expires_at: string;
   created_at: string;

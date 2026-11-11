@@ -102,7 +102,17 @@ export function TicketList() {
                   <Badge variant="secondary">{ticket.tier.name}</Badge>
                   {ticket.status === "released" && (
                     <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-900">
-                      Released, still yours
+                      {ticket.resale ? "Being resold" : "Released, still yours"}
+                    </Badge>
+                  )}
+                  {ticket.status === "transferred" && (
+                    <Badge variant="outline" className="border-emerald-300 bg-emerald-50 text-emerald-900">
+                      Resold
+                    </Badge>
+                  )}
+                  {ticket.from_standby && ticket.status !== "transferred" && (
+                    <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
+                      From standby
                     </Badge>
                   )}
                 </div>
@@ -128,7 +138,37 @@ export function TicketList() {
               </div>
             </div>
 
-            {ticket.status === "released" && (
+            {ticket.status === "transferred" && (
+              <p className="mt-3 border-t pt-3 text-sm text-muted-foreground">
+                {ticket.resale ? (
+                  <>
+                    The agent resold this seat to a fan on standby. PayPal refunded you{" "}
+                    <span className="font-medium text-foreground">
+                      {formatMoney(ticket.resale.refund_cents)}
+                    </span>{" "}
+                    ({ticket.resale.refund_terms.toLowerCase()})
+                    {ticket.resale.refund_id && (
+                      <>
+                        , ref <span className="font-mono">{ticket.resale.refund_id}</span>
+                      </>
+                    )}
+                    . This ticket is no longer valid for entry.
+                  </>
+                ) : (
+                  "This ticket was resold and is no longer valid for entry."
+                )}
+              </p>
+            )}
+
+            {ticket.status === "released" && ticket.resale && (
+              <p className="mt-3 border-t pt-3 text-sm text-muted-foreground">
+                The agent matched this seat to a fan on standby and is finishing the payment with PayPal.
+                Your {formatMoney(ticket.resale.refund_cents)} refund has not been sent yet; the ticket
+                stays yours until it has.
+              </p>
+            )}
+
+            {ticket.status === "released" && !ticket.resale && (
               <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t pt-3">
                 <p className="min-w-0 flex-1 text-sm text-muted-foreground">
                   Offered to fans on standby.{" "}

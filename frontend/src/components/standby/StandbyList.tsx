@@ -24,11 +24,11 @@ import { postJson, useApi } from "@/lib/use-api";
 const STATUS: Record<StandbyStatus, { label: string; tone: "active" | "good" | "muted" | "bad" }> = {
   draft: { label: "Not confirmed", tone: "muted" },
   authorized: { label: "Waiting", tone: "active" },
-  matched: { label: "Seat found", tone: "good" },
+  matched: { label: "Seat found, finishing payment", tone: "active" },
   settled: { label: "Seat found", tone: "good" },
   cancelled: { label: "Cancelled, hold released", tone: "muted" },
   expired: { label: "Ended, hold released", tone: "muted" },
-  failed: { label: "Failed, nothing held", tone: "bad" },
+  failed: { label: "Failed, not charged", tone: "bad" },
 };
 
 const TONE = {
@@ -138,10 +138,43 @@ export function StandbyList() {
                   )}
                 </div>
                 <div className="text-right text-sm">
-                  <p className="font-semibold tabular-nums">{formatMoney(request.authorized_cents)}</p>
-                  <p className="text-muted-foreground">{active ? "held by PayPal" : "hold amount"}</p>
+                  <p className="font-semibold tabular-nums">
+                    {formatMoney(request.captured_cents ?? request.authorized_cents)}
+                  </p>
+                  <p className="text-muted-foreground">
+                    {request.captured_cents !== null ? "charged" : active ? "held by PayPal" : "hold amount"}
+                  </p>
                 </div>
               </div>
+              {request.status === "settled" && (
+                <p className="mt-3 border-t pt-3 text-sm text-muted-foreground">
+                  The agent got you {request.quantity === 1 ? "a seat" : `${request.quantity} seats`}.{" "}
+                  {request.captured_cents !== null && (
+                    <>
+                      PayPal charged{" "}
+                      <span className="font-medium text-foreground">{formatMoney(request.captured_cents)}</span>
+                      {request.captured_cents < request.authorized_cents && " and released the rest of the hold"}
+                      {request.capture_id && (
+                        <>
+                          {" "}
+                          (ref <span className="font-mono">{request.capture_id}</span>)
+                        </>
+                      )}
+                      .{" "}
+                    </>
+                  )}
+                  <Link href="/tickets" className="text-primary underline-offset-4 hover:underline">
+                    See your ticket{request.quantity === 1 ? "" : "s"}
+                  </Link>
+                </p>
+              )}
+              {request.status === "matched" && (
+                <p className="mt-3 border-t pt-3 text-sm text-muted-foreground">
+                  {request.captured_cents !== null
+                    ? `PayPal charged ${formatMoney(request.captured_cents)}. Your ticket is issued as soon as the previous holder's refund completes; nothing more is needed from you.`
+                    : "A seat was matched to you and PayPal has not confirmed the charge yet. This finishes on its own and you cannot be charged twice."}
+                </p>
+              )}
               {active && (
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t pt-3">
                   <p className="text-sm text-muted-foreground">

@@ -55,12 +55,27 @@ export function ReleaseDialog({
     setWorking(true);
     setError(null);
     try {
-      await postJson("/api/tickets/release", { ticketIds: chosen.map((ticket) => ticket.id) });
-      toast.success(
-        chosen.length === 1
-          ? "Seat released. It stays yours until someone on standby takes it."
-          : `${chosen.length} seats released. They stay yours until someone on standby takes them.`,
-      );
+      const result = await postJson<{ tickets: MyTicket[] }>("/api/tickets/release", {
+        ticketIds: chosen.map((ticket) => ticket.id),
+      });
+      // The agent matches straight away, so some seats may already be resold.
+      const resold = result.tickets.filter((ticket) => ticket.resale?.state === "resold");
+      const refunded = resold.reduce((sum, ticket) => sum + (ticket.resale?.refund_cents ?? 0), 0);
+      const waiting = chosen.length - resold.length;
+      if (resold.length > 0) {
+        toast.success(
+          `${resold.length === 1 ? "Seat" : `${resold.length} seats`} resold to a fan on standby. PayPal refunded you ${formatMoney(refunded)}.` +
+            (waiting > 0
+              ? ` ${waiting} more ${waiting === 1 ? "is" : "are"} still offered and ${waiting === 1 ? "stays" : "stay"} yours until resold.`
+              : ""),
+        );
+      } else {
+        toast.success(
+          chosen.length === 1
+            ? "Seat released. It stays yours until someone on standby takes it."
+            : `${chosen.length} seats released. They stay yours until someone on standby takes them.`,
+        );
+      }
       onReleased();
       onClose();
     } catch (err) {

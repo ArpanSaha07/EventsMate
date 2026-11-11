@@ -4,7 +4,7 @@ import { describeTerms, parseRefundRule, previewRefund, type RefundRule } from "
 import { releaseBlocker, releaseCutoff } from "@/lib/rules";
 import type { Profile } from "@/lib/session";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import type { MyTicket, TicketRefund, TicketStatus } from "@/lib/types";
+import type { MyTicket, TicketRefund, TicketResale, TicketStatus } from "@/lib/types";
 
 /** Most tickets one release may contain. */
 export const MAX_TICKETS_PER_RELEASE = 20;
@@ -48,8 +48,11 @@ function refundFor(rule: RefundRule, row: TicketRow, now: Date): TicketRefund {
   };
 }
 
+type Extras = { resale: TicketResale | null; fromStandby: boolean };
+const NO_EXTRAS: Extras = { resale: null, fromStandby: false };
+
 /** Shapes a row for its holder. Every amount shown in the UI is computed here. */
-function toMyTicket(row: TicketRow, now: Date): MyTicket {
+function toMyTicket(row: TicketRow, now: Date, extras: Extras = NO_EXTRAS): MyTicket {
   // D36: a released seat is paid under the rule copied at release.
   const rule = parseRefundRule(row.status === "released" ? row.release_rule : row.event.refund_rule);
   const refund = rule ? refundFor(rule, row, now) : null;
@@ -79,6 +82,8 @@ function toMyTicket(row: TicketRow, now: Date): MyTicket {
     release_blocked: blocked,
     refund,
     release_cutoff_at: releaseCutoff(row.event.starts_at).toISOString(),
+    resale: extras.resale,
+    from_standby: extras.fromStandby,
     tier: row.tier,
     event,
   };
@@ -96,21 +101,51 @@ export async function returnUnmatchedTickets(filter: { ownerId?: string; eventId
   if (error) throw new Error(`Could not return unmatched tickets: ${error.message}`);
 }
 
-/** The holder's tickets, soonest event first. Transferred tickets are history, not shown. */
+/**
+ * The holder's tickets, soonest event first: valid, released, and resold ones
+ * (kept so the holder can see what they were refunded).
+ */
 export async function listMyTickets(owner: Profile): Promise<MyTicket[]> {
   await returnUnmatchedTickets({ ownerId: owner.id });
+  const db = supabaseAdmin();
 
-  const { data, error } = await supabaseAdmin()
-    .from("tickets")
-    .select(TICKET_COLUMNS)
-    .eq("owner_id", owner.id)
-    .in("status", ["valid", "released"])
-    .order("created_at", { ascending: true });
-  if (error) throw new Error(`Could not load tickets: ${error.message}`);
+  const [tickets, sold, bought] = await Promise.all([
+    db
+      .from("tickets")
+      .select(TICKET_COLUMNS)
+      .eq("owner_id", owner.id)
+      .in("status", ["valid", "released", "transferred"])
+      .order("created_at", { ascending: true }),
+    db
+      .from("settlements")
+      .select("ticket_id,status,refund_cents,refund_terms,refund_id,completed_at")
+      .eq("holder_id", owner.id)
+      .neq("status", "capture_failed"),
+    db.from("settlements").select("new_ticket_id").eq("fan_id", owner.id).eq("status", "transferred"),
+  ]);
+  for (const result of [tickets, sold, bought]) {
+    if (result.error) throw new Error(`Could not load tickets: ${result.error.message}`);
+  }
+
+  const resales = new Map<string, TicketResale>();
+  for (const row of sold.data ?? []) {
+    const done = row.status === "transferred";
+    resales.set(row.ticket_id, {
+      // The fan may already be charged, but the holder is told "resold" only once refunded.
+      state: done ? "resold" : "in_progress",
+      refund_cents: row.refund_cents,
+      refund_terms: row.refund_terms,
+      refund_id: done ? row.refund_id : null,
+      resold_at: done ? row.completed_at : null,
+    });
+  }
+  const fromStandby = new Set((bought.data ?? []).map((row) => row.new_ticket_id as string));
 
   const now = new Date();
-  return (data as unknown as TicketRow[])
-    .map((row) => toMyTicket(row, now))
+  return (tickets.data as unknown as TicketRow[])
+    .map((row) =>
+      toMyTicket(row, now, { resale: resales.get(row.id) ?? null, fromStandby: fromStandby.has(row.id) }),
+    )
     .sort((a, b) => new Date(a.event.starts_at).getTime() - new Date(b.event.starts_at).getTime());
 }
 
@@ -124,6 +159,7 @@ const RELEASE_ERRORS: Record<string, [status: number, message: string]> = {
   ticket_not_releasable: [409, "One of those tickets has already been resold."],
   ticket_not_refundable: [409, "One of those tickets has no PayPal payment behind it, so it cannot be released."],
   ticket_resold: [409, "This seat was just resold, so it can no longer be taken back."],
+  ticket_in_settlement: [409, "This seat is being resold right now, so it can no longer be taken back."],
 };
 
 function fromRpcError(message: string, context: string): Error {
@@ -136,7 +172,7 @@ function fromRpcError(message: string, context: string): Error {
 export type ReleaseOutcome = {
   /** Tickets newly released by this call (0 on a repeat). */
   releasedCount: number;
-  tickets: MyTicket[];
+  eventId: string;
 };
 
 /**
@@ -172,8 +208,7 @@ export async function releaseTickets(owner: Profile, ticketIds: string[]): Promi
   });
   if (rpcError) throw fromRpcError(rpcError.message, "release_tickets failed");
 
-  const tickets = (await listMyTickets(owner)).filter((ticket) => ids.includes(ticket.id));
-  return { releasedCount: count as number, tickets };
+  return { releasedCount: count as number, eventId: rows[0].event.id };
 }
 
 /** The holder takes a released seat back before it is resold. Safe to call again. */

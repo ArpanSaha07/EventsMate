@@ -41,9 +41,10 @@ All three moves run in Postgres functions: `release_tickets`, `take_back_ticket`
 **Standby request:** `draft` → `authorized` → `matched` → `settled`
 `authorized` → `cancelled` | `expired` (hold voided) | `failed` (capture failed)
 
-**Settlement:** `pending` → `captured` → `refunded` → `transferred`
-`pending` → `capture_failed` (no refund, try next request)
-`captured` → `refund_failed` (retry; flagged for reconciliation, never shown as success)
+**Settlement** (one row per ticket): `pending` → `captured` → `transferred`
+`pending` → `capture_failed` (no refund, request `failed`, try next request)
+`captured` → `refund_failed` (ticket not transferred, D52; retried on the next matching run)
+`captured` → `refunded` (refund done at PayPal, transfer write failed; retried without refunding again)
 
 ## Refund rule (`src/lib/refund-rule.ts`, version 1)
 
@@ -76,15 +77,19 @@ Every mutating call carries a `PayPal-Request-Id` derived from our row id, so re
 
 ## Settlement transaction
 
-1. In one Postgres RPC: lock the released ticket and the request, confirm both are still
-   eligible, insert `settlements(pending)` with a unique key on `ticket_id`.
-2. Capture the authorization. On failure: mark `capture_failed`, restore the ticket to
-   `released`, move to the next request.
-3. Refund the holder's capture for `refund_cents`.
-4. In one RPC: mark old ticket `transferred`, insert the fan's new ticket, mark request and
-   settlement complete, write `agent_actions`.
+1. `begin_settlement` RPC: lock the request and the released tickets, confirm all are still
+   eligible, insert one `settlements(pending)` row per ticket, set the request to `matched`.
+2. Capture the authorization once for the whole request (D50). On refusal:
+   `fail_settlement_capture` marks `capture_failed`, the tickets stay `released`, the next
+   request is tried.
+3. Refund each holder's original capture for `refund_cents`.
+4. `complete_settlement` RPC, per ticket: record the refund, mark the old ticket
+   `transferred`, insert the fan's new ticket, settle the request when all its tickets are
+   done, write `agent_actions`.
 
-A seat can never be sold twice: step 1's unique key and row locks guarantee it.
+Matching runs after every release and every placed hold (D51). Details: `features/settlement.md`.
+
+A seat can never be sold twice: step 1's row locks and the unique index on live settlements per ticket guarantee it.
 
 ## AI workflows (OpenAI, strict JSON schema, re-validated with Zod)
 

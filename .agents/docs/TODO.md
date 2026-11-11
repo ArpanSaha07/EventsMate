@@ -10,7 +10,7 @@ be shown working against the real PayPal sandbox before the next item starts.
 - [x] **3. F2 Buy a ticket.** (built and verified up to PayPal order creation; gate needs the user to approve a sandbox payment) Gate: a sandbox buyer pays and a verified ticket appears in "My tickets".
 - [x] **4. F3 Standby hold.** (built and verified up to PayPal order creation; gate needs the user to approve a sandbox hold, then cancel it) Gate: an authorization exists in PayPal, shows as a hold, and cancelling voids it.
 - [x] **5. F4 Release a seat** with a rule-based refund preview (built after item 8, decision D32). Gate: release, take back, and cutoff return all work.
-- [ ] **6. F5 Settlement, rule-based matching first.** Gate: release triggers capture, refund and ticket transfer, with PayPal references; a forced capture failure refunds nobody.
+- [x] **6. F5 Settlement, rule-based matching first.** Gate: release triggers capture, refund and ticket transfer, with PayPal references; a forced capture failure refunds nobody.
 - [ ] **7. F9 Action log.** Gate: every step of item 6 is visible with its reason and reference.
 - [x] **8. F6 Policy reader.** (built before item 5, decision D32) Gate: a pasted policy becomes a confirmed rule and drives the refund preview.
 - [ ] **9. F5 Agent matching.** Gate: a multi-request, multi-tier case is allocated better than first-come, and an invalid model proposal is rejected by code.

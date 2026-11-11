@@ -61,14 +61,16 @@ AskUserQuestion, then move it here with the date. Never settle an open item your
 | D47 | Notifications (was O8) | In-app only: status and a short explanation on My tickets and Standby. No email |
 | D48 | Agent docs sync (amends D16) | `.claude/` stays canonical. After the `commit-msg` skill, `scripts/sync-agents.sh` asks Codex to mirror `.claude/AGENTS.md`, `docs/` and `SKILLS/` into `.agents/`; Codex runs with write access to `.agents/` only. Claude does not edit `.agents/` by hand |
 | D42 | Organiser UI | A "My events" page at `/manage`, shown only to the organiser persona, for reading and confirming policies; the dashboard (item 11) grows from it |
+| D50 | Partial fills (was O5) | All or nothing. A standby request is matched only when enough released seats exist to fill its whole quantity; one PayPal capture per hold. A smaller, later request may be filled while a larger one waits |
+| D51 | Matching trigger (was O7) | Matching runs right after a seat is released and right after a standby hold is authorized, so either order works. No timer |
+| D52 | Refund fails after capture | Strict D10 order: the ticket is not transferred until the holder's refund completes. Both sides see a pending state, the settlement is flagged, and the refund is retried with the same idempotency key on the next matching run |
+| D53 | Holds past the honor period | Settlement captures directly without reauthorizing. A failed capture marks the request failed, refunds nobody and the next request is tried |
 | D49 | Plan with AI chat (amends D13) | Conversational event discovery at `/plan` is in scope as a demo extra, not a main feature (it was deferred in `future.md`). On every message the model is given the full live catalog from the database and proposes event refs; code validates them, recomputes sold-out status and prices, and shows events with tickets first and sold-out events second. No pgvector or embeddings. The buy / standby prompt appears only when the reply is about a single event |
 
 ## Open (ask when the feature is reached)
 
 | # | Topic | Needed for |
 |---|---|---|
-| O5 | Partial fills: may a request for 3 seats be offered 2? | F5 |
-| O7 | Matching trigger: on every release, on a timer, or both | F5 |
 | O9 | Where exactly AG Grid and Bryntum appear, and Bryntum trial licence acceptance | F8 |
 | O10 | Render service shape (web only, or web plus worker/cron) and plan | Deploy, F10 |
 | O11 | Whether the old `EventsMate_Coding_Agent_Brief.md` is deleted or kept as history | Cleanup |

@@ -1,5 +1,5 @@
 import "server-only";
-import { CaptureStatus, CheckoutPaymentIntent, OrderStatus } from "@paypal/paypal-server-sdk";
+import { ApiError, CaptureStatus, CheckoutPaymentIntent, OrderStatus } from "@paypal/paypal-server-sdk";
 import { centsToDecimalString, decimalStringToCents } from "@/lib/money";
 import { paypalOrders, paypalPayments } from "./client";
 
@@ -159,6 +159,73 @@ export async function authorizePayPalOrder(
     currency: authorization.amount.currencyCode,
     referenceId: authorization.customId ?? unit?.customId ?? unit?.referenceId,
   };
+}
+
+export type AuthorizationCapture =
+  | { outcome: "completed"; captureId: string; amountCents: number; currency: string }
+  /** PayPal refused: nothing was charged. */
+  | { outcome: "failed"; reason: string }
+  /** No definite answer (timeout, 5xx, pending): the charge may or may not exist. Retry with the same key. */
+  | { outcome: "unknown"; reason: string };
+
+/**
+ * Captures part or all of a standby hold as the final capture; PayPal releases
+ * the remainder. `requestKey` must be our standby request id so a retry returns
+ * the original capture instead of charging twice.
+ */
+export async function captureAuthorization(
+  authorizationId: string,
+  amountCents: number,
+  requestKey: string,
+  note: string,
+): Promise<AuthorizationCapture> {
+  let result;
+  try {
+    ({ result } = await paypalPayments().captureAuthorizedPayment({
+      authorizationId,
+      paypalRequestId: `capture-hold-${requestKey}`,
+      prefer: "return=representation",
+      body: {
+        amount: { currencyCode: "USD", value: centsToDecimalString(amountCents) },
+        finalCapture: true,
+        noteToPayer: note.slice(0, 255),
+      },
+    }));
+  } catch (err) {
+    const reason = paypalErrorReason(err);
+    // 4xx is PayPal saying no (voided, expired, declined). Anything else is not an answer.
+    const refused =
+      err instanceof ApiError && err.statusCode >= 400 && err.statusCode < 500 && err.statusCode !== 429;
+    return { outcome: refused ? "failed" : "unknown", reason };
+  }
+
+  const captured = decimalStringToCents(result.amount?.value);
+  if (result.status === CaptureStatus.Declined || result.status === CaptureStatus.Failed) {
+    return { outcome: "failed", reason: `capture ${result.status}` };
+  }
+  if (
+    result.status !== CaptureStatus.Completed ||
+    !result.id ||
+    captured === null ||
+    !result.amount?.currencyCode
+  ) {
+    return { outcome: "unknown", reason: `capture ${result.status ?? "without a status"}` };
+  }
+  return {
+    outcome: "completed",
+    captureId: result.id,
+    amountCents: captured,
+    currency: result.amount.currencyCode,
+  };
+}
+
+/** A short, loggable reason from a PayPal SDK error: its issue code when there is one. */
+export function paypalErrorReason(err: unknown): string {
+  if (err instanceof ApiError) {
+    const body = err.result as { name?: string; details?: { issue?: string }[] } | undefined;
+    return body?.details?.[0]?.issue ?? body?.name ?? `HTTP ${err.statusCode}`;
+  }
+  return err instanceof Error ? err.message.slice(0, 200) : "unknown error";
 }
 
 /** Releases a hold. Safe to repeat: PayPal's request id makes the void idempotent. */

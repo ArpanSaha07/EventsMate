@@ -32,7 +32,20 @@ type Props = {
   onAuthorized: () => void;
 };
 
-type Phase = { name: "review" } | { name: "verifying" } | { name: "authorized"; cents: number };
+type Phase =
+  | { name: "review" }
+  | { name: "verifying" }
+  | { name: "authorized"; cents: number }
+  /** A released seat was already waiting, so the agent settled straight away. */
+  | { name: "settled"; chargedCents: number }
+  /** Matched, but PayPal has not confirmed every step yet. */
+  | { name: "matched" };
+
+type AuthorizeResult = {
+  status: string;
+  authorizedCents: number;
+  capturedCents: number | null;
+};
 
 /** The confirm card for going on standby: exactly what may be charged, then PayPal approval of the hold. */
 export function StandbyDialog({ event, initialTierId, open, onOpenChange, onAuthorized }: Props) {
@@ -59,10 +72,19 @@ export function StandbyDialog({ event, initialTierId, open, onOpenChange, onAuth
     setPhase({ name: "verifying" });
     setError(null);
     try {
-      const result = await postJson<{ authorizedCents: number }>(
-        `/api/standby/${requestId.current}/authorize`,
-      );
-      setPhase({ name: "authorized", cents: result.authorizedCents });
+      const result = await postJson<AuthorizeResult>(`/api/standby/${requestId.current}/authorize`);
+      if (result.status === "settled" && result.capturedCents !== null) {
+        setPhase({ name: "settled", chargedCents: result.capturedCents });
+      } else if (result.status === "matched") {
+        setPhase({ name: "matched" });
+      } else if (result.status === "authorized") {
+        setPhase({ name: "authorized", cents: result.authorizedCents });
+      } else {
+        // A seat was waiting but PayPal refused the charge: the request is closed.
+        throw new Error(
+          "A seat was available, but PayPal could not charge your hold, so you were not charged and the request was closed. You can try again.",
+        );
+      }
       onAuthorized();
     } catch (err) {
       setPhase({ name: "review" });
@@ -80,7 +102,29 @@ export function StandbyDialog({ event, initialTierId, open, onOpenChange, onAuth
       }}
     >
       <DialogContent className="sm:max-w-md" showCloseButton={!busy}>
-        {phase.name === "authorized" ? (
+        {phase.name === "settled" || phase.name === "matched" ? (
+          <>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <CircleCheck className="size-5 text-primary" aria-hidden />
+                {phase.name === "settled" ? "You got a seat" : "A seat was found"}
+              </DialogTitle>
+              <DialogDescription>
+                {phase.name === "settled"
+                  ? `A released seat was already waiting, so the agent got it for you. PayPal charged ${formatMoney(phase.chargedCents)} and released the rest of the hold. Your ticket is in My tickets.`
+                  : "A released seat was already waiting and the agent is finishing the payment with PayPal. Check My standby for the result; your ticket appears in My tickets once it is done."}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => onOpenChange(false)}>
+                Done
+              </Button>
+              <Link href={phase.name === "settled" ? "/tickets" : "/standby"} className={buttonVariants()}>
+                {phase.name === "settled" ? "View my tickets" : "View my standby"}
+              </Link>
+            </DialogFooter>
+          </>
+        ) : phase.name === "authorized" ? (
           <>
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">

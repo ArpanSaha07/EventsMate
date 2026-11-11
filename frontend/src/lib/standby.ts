@@ -17,13 +17,14 @@ type RequestRow = {
   quantity: number;
   status: MyStandbyRequest["status"];
   authorized_cents: number;
+  captured_cents: number | null;
   paypal_order_id: string | null;
   authorization_id: string | null;
   expires_at: string;
 };
 
 const ROW_COLUMNS =
-  "id,fan_id,event_id,quantity,status,authorized_cents,paypal_order_id,authorization_id,expires_at";
+  "id,fan_id,event_id,quantity,status,authorized_cents,captured_cents,paypal_order_id,authorization_id,expires_at";
 
 async function loadOwnRequest(fan: Profile, requestId: string): Promise<RequestRow> {
   const { data, error } = await supabaseAdmin()
@@ -129,7 +130,30 @@ export async function createStandbyRequest(
   return { requestId: request.id, paypalOrderId, authorizedCents };
 }
 
-export type StandbyOutcome = { requestId: string; status: "authorized"; authorizedCents: number };
+export type StandbyOutcome = {
+  requestId: string;
+  eventId: string;
+  /** "authorized": waiting in the queue. Later states appear when a seat was already released. */
+  status: MyStandbyRequest["status"];
+  authorizedCents: number;
+  /** What was charged, once seats were found and PayPal confirmed the capture. */
+  capturedCents: number | null;
+};
+
+function outcomeOf(row: RequestRow): StandbyOutcome {
+  return {
+    requestId: row.id,
+    eventId: row.event_id,
+    status: row.status,
+    authorizedCents: row.authorized_cents,
+    capturedCents: row.captured_cents,
+  };
+}
+
+/** Where the fan's request stands now (after matching may have run). */
+export async function getStandbyOutcome(fan: Profile, requestId: string): Promise<StandbyOutcome> {
+  return outcomeOf(await loadOwnRequest(fan, requestId));
+}
 
 /**
  * After the fan approved in PayPal: place the hold, verify it against our row,
@@ -139,8 +163,9 @@ export async function authorizeStandbyRequest(fan: Profile, requestId: string): 
   const db = supabaseAdmin();
   const row = await loadOwnRequest(fan, requestId);
 
-  if (row.status === "authorized") {
-    return { requestId: row.id, status: "authorized", authorizedCents: row.authorized_cents };
+  // Already confirmed (and possibly matched since): report where it stands.
+  if (row.status === "authorized" || row.status === "matched" || row.status === "settled") {
+    return outcomeOf(row);
   }
   if (row.status !== "draft" || !row.paypal_order_id) {
     throw new AppError(409, "standby_not_pending", "This standby request can no longer be confirmed. Please start again.");
@@ -214,7 +239,7 @@ export async function authorizeStandbyRequest(fan: Profile, requestId: string): 
     );
   }
 
-  return { requestId: row.id, status: "authorized", authorizedCents: row.authorized_cents };
+  return outcomeOf({ ...row, status: "authorized" });
 }
 
 /** Fan leaves the queue: void the hold, then close the request. Safe to call again. */
@@ -289,7 +314,7 @@ export async function listMyStandbyRequests(fan: Profile): Promise<MyStandbyRequ
   const { data, error } = await supabaseAdmin()
     .from("standby_requests")
     .select(
-      "id,quantity,accepted_tier_ids,conditions_text,status,authorized_cents,authorized_at,expires_at,created_at," +
+      "id,quantity,accepted_tier_ids,conditions_text,status,authorized_cents,captured_cents,capture_id,authorized_at,expires_at,created_at," +
         "event:events(id,title,venue,city,timezone,starts_at,ends_at,ticket_tiers(id,name,price_cents))",
     )
     .eq("fan_id", fan.id)
