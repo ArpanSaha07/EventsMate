@@ -1,4 +1,25 @@
 /** Shapes shared by Route Handlers and client components. No server imports here. */
+import type { RefundRule } from "@/lib/refund-rule";
+
+/** An event as its organiser sees it on "My events". */
+export type ManagedEvent = {
+  id: string;
+  title: string;
+  venue: string;
+  city: string;
+  timezone: string;
+  starts_at: string;
+  ends_at: string;
+  refund_policy_text: string;
+  refund_rule: RefundRule | null;
+  refund_rule_confirmed_at: string | null;
+  ticket_tiers: { id: string; name: string; price_cents: number; sort_order: number }[];
+};
+
+/** What the policy reader understood. Only a "proposed" reading can be confirmed. */
+export type PolicyReadingResult =
+  | { id: string; status: "proposed"; policy_text: string; rule: RefundRule; problems: [] }
+  | { id: string; status: "rejected"; policy_text: string; rule: null; problems: string[] };
 
 export type Tier = {
   id: string;
@@ -22,6 +43,8 @@ export type EventWithTiers = {
   starts_at: string;
   ends_at: string;
   refund_policy_text: string;
+  /** The organiser-confirmed structured rule; null until a policy has been read and confirmed. */
+  refund_rule: RefundRule | null;
   /** Fans currently on standby with a hold in place. */
   standby_count: number;
   ticket_tiers: Tier[];
@@ -29,12 +52,35 @@ export type EventWithTiers = {
 
 export type TicketStatus = "valid" | "released" | "transferred";
 
+/** What the holder gets back if the seat is resold. Computed on the server only. */
+export type TicketRefund = {
+  refund_cents: number;
+  /** The rule applied, in plain words: "90% of the price paid". */
+  terms: string;
+  /** The policy sentence the rule came from. */
+  quote: string;
+  /** The next moment the amount changes while the seat is unsold, if any. */
+  next: { at: string; refund_cents: number; terms: string } | null;
+};
+
 export type MyTicket = {
   id: string;
   ticket_number: string;
   status: TicketStatus;
   unit_price_cents: number;
   created_at: string;
+  released_at: string | null;
+  /** Set when a released seat came back at the cutoff without being resold. */
+  returned_at: string | null;
+  /** Null when the seat can be released now; otherwise the reason it cannot. */
+  release_blocked: string | null;
+  /**
+   * Valid ticket: what a release would pay under the event's current rule.
+   * Released ticket: what it pays under the rule copied at release. Null if no rule.
+   */
+  refund: TicketRefund | null;
+  /** Unmatched released seats return to the holder at this moment. */
+  release_cutoff_at: string;
   tier: { id: string; name: string };
   event: {
     id: string;

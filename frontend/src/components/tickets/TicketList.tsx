@@ -1,15 +1,18 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { CalendarDays, MapPin, Ticket } from "lucide-react";
+import { toast } from "sonner";
+import { ReleaseDialog } from "@/components/tickets/ReleaseDialog";
 import { usePersona } from "@/components/shell/PersonaProvider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatEventDay, formatEventTimeRange } from "@/lib/dates";
+import { formatEventDay, formatEventTimeRange, formatMoment } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
 import type { MyTicket } from "@/lib/types";
-import { useApi } from "@/lib/use-api";
+import { postJson, useApi } from "@/lib/use-api";
 
 function EmptyState({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -23,10 +26,24 @@ function EmptyState({ title, children }: { title: string; children: React.ReactN
 
 export function TicketList() {
   const { status: personaStatus, current } = usePersona();
-  const { status, data, error, reload } = useApi<{ tickets: MyTicket[] }>(
-    current ? "/api/tickets" : null,
-    [current?.id],
-  );
+  const { status, data, error, reload } = useApi<{ tickets: MyTicket[] }>(current ? "/api/tickets" : null, [
+    current?.id,
+  ]);
+  const [releasing, setReleasing] = useState<MyTicket | null>(null);
+  const [takingBack, setTakingBack] = useState<string | null>(null);
+
+  async function takeBack(ticket: MyTicket) {
+    setTakingBack(ticket.id);
+    try {
+      await postJson(`/api/tickets/${ticket.id}/take-back`);
+      toast.success(`${ticket.ticket_number} is yours again and no longer offered for resale.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not take the seat back. Please retry.");
+    } finally {
+      setTakingBack(null);
+      reload();
+    }
+  }
 
   if (personaStatus === "ready" && !current) {
     return (
@@ -69,45 +86,108 @@ export function TicketList() {
   }
 
   return (
-    <ul className="space-y-3">
-      {data.tickets.map((ticket) => (
-        <li
-          key={ticket.id}
-          className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-xl border bg-card p-4"
-        >
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <Link
-                href={`/events/${ticket.event.id}`}
-                className="font-medium underline-offset-4 hover:underline"
-              >
-                {ticket.event.title}
-              </Link>
-              <Badge variant="secondary">{ticket.tier.name}</Badge>
-              {ticket.status === "released" && (
-                <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-900">
-                  Released, still yours
-                </Badge>
-              )}
+    <>
+      <ul className="space-y-3">
+        {data.tickets.map((ticket) => (
+          <li key={ticket.id} className="rounded-xl border bg-card p-4">
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Link
+                    href={`/events/${ticket.event.id}`}
+                    className="font-medium underline-offset-4 hover:underline"
+                  >
+                    {ticket.event.title}
+                  </Link>
+                  <Badge variant="secondary">{ticket.tier.name}</Badge>
+                  {ticket.status === "released" && (
+                    <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-900">
+                      Released, still yours
+                    </Badge>
+                  )}
+                </div>
+                <div className="mt-1.5 flex flex-col gap-1 text-sm text-muted-foreground sm:flex-row sm:gap-5">
+                  <span className="flex items-center gap-1.5">
+                    <CalendarDays className="size-4 shrink-0" aria-hidden />
+                    {formatEventDay(ticket.event.starts_at, ticket.event.timezone)} ·{" "}
+                    {formatEventTimeRange(
+                      ticket.event.starts_at,
+                      ticket.event.ends_at,
+                      ticket.event.timezone,
+                    )}
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <MapPin className="size-4 shrink-0" aria-hidden />
+                    {ticket.event.venue}
+                  </span>
+                </div>
+              </div>
+              <div className="text-right text-sm">
+                <p className="font-mono">{ticket.ticket_number}</p>
+                <p className="text-muted-foreground">Paid {formatMoney(ticket.unit_price_cents)}</p>
+              </div>
             </div>
-            <div className="mt-1.5 flex flex-col gap-1 text-sm text-muted-foreground sm:flex-row sm:gap-5">
-              <span className="flex items-center gap-1.5">
-                <CalendarDays className="size-4 shrink-0" aria-hidden />
-                {formatEventDay(ticket.event.starts_at, ticket.event.timezone)} ·{" "}
-                {formatEventTimeRange(ticket.event.starts_at, ticket.event.ends_at, ticket.event.timezone)}
-              </span>
-              <span className="flex items-center gap-1.5">
-                <MapPin className="size-4 shrink-0" aria-hidden />
-                {ticket.event.venue}
-              </span>
-            </div>
-          </div>
-          <div className="text-right text-sm">
-            <p className="font-mono">{ticket.ticket_number}</p>
-            <p className="text-muted-foreground">Paid {formatMoney(ticket.unit_price_cents)}</p>
-          </div>
-        </li>
-      ))}
-    </ul>
+
+            {ticket.status === "released" && (
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t pt-3">
+                <p className="min-w-0 flex-1 text-sm text-muted-foreground">
+                  Offered to fans on standby.{" "}
+                  {ticket.refund && (
+                    <>
+                      If it is resold now you get{" "}
+                      <span className="font-medium text-foreground">
+                        {formatMoney(ticket.refund.refund_cents)}
+                      </span>{" "}
+                      back ({ticket.refund.terms.toLowerCase()})
+                      {ticket.refund.next &&
+                        `, or ${formatMoney(ticket.refund.next.refund_cents)} after ${formatMoment(ticket.refund.next.at, ticket.event.timezone)}`}
+                      .{" "}
+                    </>
+                  )}
+                  If nobody takes it by {formatMoment(ticket.release_cutoff_at, ticket.event.timezone)}, it
+                  returns to you with no refund.
+                </p>
+                <Button variant="outline" disabled={takingBack !== null} onClick={() => takeBack(ticket)}>
+                  {takingBack === ticket.id ? "Taking back…" : "Take it back"}
+                </Button>
+              </div>
+            )}
+
+            {ticket.status === "valid" && (
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t pt-3">
+                <p className="min-w-0 flex-1 text-sm text-muted-foreground">
+                  {ticket.returned_at && (
+                    <span className="block text-foreground">
+                      Returned to you at the cutoff: nobody on standby took it. No refund was made.
+                    </span>
+                  )}
+                  {ticket.release_blocked
+                    ? `Can't be released: ${ticket.release_blocked}`
+                    : "Can't make it? Release the seat and get a refund when it is resold."}
+                </p>
+                {!ticket.release_blocked && (
+                  <Button variant="outline" onClick={() => setReleasing(ticket)}>
+                    Release seat
+                  </Button>
+                )}
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+
+      {releasing && (
+        <ReleaseDialog
+          key={releasing.id}
+          initialId={releasing.id}
+          tickets={data.tickets.filter(
+            (ticket) =>
+              ticket.event.id === releasing.event.id && ticket.status === "valid" && !ticket.release_blocked,
+          )}
+          onClose={() => setReleasing(null)}
+          onReleased={reload}
+        />
+      )}
+    </>
   );
 }

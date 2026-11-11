@@ -26,6 +26,7 @@ PayPal ── webhook ──────────┘
 | `tickets` | One seat | tier_id, owner_id, order_id, ticket_number, status, source_capture_id, unit_price_cents |
 | `standby_requests` | A fan's request and hold | fan_id, event_id, quantity, accepted_tier_ids, max_price_cents, conditions_text, conditions (jsonb), status, paypal_order_id, authorization_id, authorized_cents, honor_expires_at, expires_at |
 | `settlements` | One resale of one ticket | ticket_id, request_id, new_ticket_id, capture_id, refund_id, refund_cents, status, idempotency_key |
+| `policy_readings` | Each reading of a policy by the model | event_id, policy_text, status (`proposed`/`rejected`/`confirmed`/`superseded`), rule, model_output, problems, model |
 | `agent_actions` | Action log | actor, kind, subject ids, reason, paypal_ref, request/response summary, created_at |
 | `paypal_webhook_events` | Inbox | paypal_event_id (unique), type, payload, verified, processed_at |
 
@@ -34,7 +35,8 @@ All money is integer cents, USD. `src/lib/money.ts` holds the only conversions.
 ## State machines
 
 **Ticket:** `valid` → `released` → `transferred` (holder's old ticket; new `valid` ticket issued to fan)
-`released` → `valid` (holder takes it back, or cutoff passes with no match)
+`released` → `valid` (holder takes it back, or cutoff passes with no match; then `returned_at` is set)
+All three moves run in Postgres functions: `release_tickets`, `take_back_ticket`, `return_unmatched_tickets`.
 
 **Standby request:** `draft` → `authorized` → `matched` → `settled`
 `authorized` → `cancelled` | `expired` (hold voided) | `failed` (capture failed)
@@ -42,6 +44,21 @@ All money is integer cents, USD. `src/lib/money.ts` holds the only conversions.
 **Settlement:** `pending` → `captured` → `refunded` → `transferred`
 `pending` → `capture_failed` (no refund, try next request)
 `captured` → `refund_failed` (retry; flagged for reconciliation, never shown as success)
+
+## Refund rule (`src/lib/refund-rule.ts`, version 1)
+
+`{ version: 1, clauses: [{ tier_id, tier_name, within_hours_of_start, percent, fee_cents, quote }] }`
+
+- Exactly one general clause (no tier, no window) is required; no two clauses share a scope.
+- Which clause applies (D40): an active time window beats clauses without one; the tightest
+  active window wins; at the same window a tier clause beats a general one.
+- Amount (D41): `floor(price x percent / 100) - fee`. Computed at resale time (D35) from the
+  rule copied onto the ticket at release (`tickets.release_rule`, D36).
+- Percent is 1-100 and no clause may pay $0 for a tier (D44): "no refund" limits on ordinary
+  refunds create no resale clause.
+- Flow: `POST /api/manage/events/[id]/policy/read` stores a validated reading;
+  `.../policy/confirm` takes only the reading id and publishes text + rule in the
+  `confirm_policy_reading` RPC. The browser never sends a rule.
 
 ## PayPal flows
 

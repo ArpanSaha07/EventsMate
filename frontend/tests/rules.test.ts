@@ -3,6 +3,7 @@ import {
   beforeReleaseCutoff,
   isSoldOut,
   maxOrderQuantity,
+  releaseBlocker,
   releaseCutoff,
   salesOpen,
   seatsLeft,
@@ -39,5 +40,32 @@ describe("timing", () => {
     expect(beforeReleaseCutoff(start, new Date("2026-11-16T16:00:00-08:00"))).toBe(false);
     expect(salesOpen(start, new Date("2026-11-16T17:59:59-08:00"))).toBe(true);
     expect(salesOpen(start, new Date("2026-11-16T18:00:00-08:00"))).toBe(false);
+  });
+});
+
+describe("releaseBlocker", () => {
+  const event = { starts_at: "2026-11-16T18:00:00-08:00", hasRefundRule: true };
+  const before = new Date("2026-11-16T15:59:59-08:00");
+  const paid = { status: "valid" as const, paidWithPayPal: true };
+
+  it("allows a valid, PayPal-paid ticket before the cutoff when a rule is confirmed", () => {
+    expect(releaseBlocker(paid, event, before)).toBeNull();
+  });
+
+  it("closes at the cutoff, two hours before the start", () => {
+    expect(releaseBlocker(paid, event, new Date("2026-11-16T16:00:00-08:00"))).toMatch(/closed/);
+  });
+
+  it("refuses tickets with nothing to refund against", () => {
+    expect(releaseBlocker({ ...paid, paidWithPayPal: false }, event, before)).toMatch(/PayPal/);
+  });
+
+  it("refuses when the event has no confirmed refund rule", () => {
+    expect(releaseBlocker(paid, { ...event, hasRefundRule: false }, before)).toMatch(/refund rule/);
+  });
+
+  it("refuses tickets that are already released or resold", () => {
+    expect(releaseBlocker({ ...paid, status: "released" }, event, before)).toMatch(/already released/);
+    expect(releaseBlocker({ ...paid, status: "transferred" }, event, before)).toMatch(/resold/);
   });
 });

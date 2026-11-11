@@ -29,6 +29,29 @@ export function salesOpen(startsAt: string | Date, now: Date = new Date()): bool
   return now.getTime() < new Date(startsAt).getTime();
 }
 
+/**
+ * Why a ticket cannot be released right now, in words for its holder; null if it can.
+ * The database function `release_tickets` enforces the same conditions.
+ */
+export function releaseBlocker(
+  ticket: { status: "valid" | "released" | "transferred"; paidWithPayPal: boolean },
+  event: { starts_at: string | Date; hasRefundRule: boolean },
+  now: Date = new Date(),
+): string | null {
+  if (ticket.status === "released") return "This seat is already released.";
+  if (ticket.status !== "valid") return "This ticket has been resold.";
+  if (!beforeReleaseCutoff(event.starts_at, now)) {
+    return "Releases closed 2 hours before the start.";
+  }
+  if (!ticket.paidWithPayPal) {
+    return "This ticket has no PayPal payment behind it, so there is nothing to refund.";
+  }
+  if (!event.hasRefundRule) {
+    return "The organiser has not confirmed a refund rule for this event yet.";
+  }
+  return null;
+}
+
 export function beforeReleaseCutoff(startsAt: string | Date, now: Date = new Date()): boolean {
   return now.getTime() < releaseCutoff(startsAt).getTime();
 }
