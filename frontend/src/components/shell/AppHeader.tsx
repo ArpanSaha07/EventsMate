@@ -15,6 +15,7 @@ const NAV: NavItem[] = [
   { href: "/", label: "Events", roles: ["attendee", "organiser"] },
   { href: "/tickets", label: "My tickets", roles: ["attendee", "organiser"] },
   { href: "/standby", label: "Standby", roles: ["attendee", "organiser"] },
+  { href: "/manage", label: "My events", roles: ["organiser"] },
 ];
 
 const LINK_CLASS =

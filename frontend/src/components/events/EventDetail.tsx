@@ -7,6 +7,7 @@ import { ArrowLeft, CalendarDays, MapPin } from "lucide-react";
 import { BuyDialog } from "@/components/checkout/BuyDialog";
 import { StandbyDialog } from "@/components/standby/StandbyDialog";
 import { TierAvailability } from "@/components/events/TierAvailability";
+import { RefundExamples } from "@/components/manage/RuleSummary";
 import { usePersona } from "@/components/shell/PersonaProvider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,7 @@ export function EventDetail() {
   const mine = useApi<{ requests: MyStandbyRequest[] }>(current ? "/api/standby" : null, [current?.id]);
   const [buying, setBuying] = useState<Tier | null>(null);
   const [standbyTier, setStandbyTier] = useState<Tier | null>(null);
+  const [now] = useState(() => new Date());
 
   if (status === "loading") return <EventDetailSkeleton />;
 
@@ -141,6 +143,18 @@ export function EventDetail() {
           <div className="mt-2 rounded-xl border bg-card p-4 text-sm">
             <p className="font-medium">Refund policy</p>
             <p className="mt-1 text-muted-foreground">{event.refund_policy_text}</p>
+            {event.refund_rule && (
+              <div className="mt-3">
+                <p className="mb-1.5 text-muted-foreground">If you release a seat and it is resold:</p>
+                <RefundExamples
+                  rule={event.refund_rule}
+                  tiers={event.ticket_tiers}
+                  startsAt={event.starts_at}
+                  timezone={event.timezone}
+                  now={now}
+                />
+              </div>
+            )}
             <p className="mt-3 text-muted-foreground">
               Seats can be released until{" "}
               <span className="text-foreground">

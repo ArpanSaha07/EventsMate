@@ -39,15 +39,34 @@ AskUserQuestion, then move it here with the date. Never settle an open item your
 | D30 | Standby requests | One active request per fan per event |
 | D31 | Standby seats | Up to 4 seats per request |
 
+## Decided (2026-11-11, by the user)
+
+| # | Topic | Decision |
+|---|---|---|
+| D16 | Agent docs (reaffirmed) | Only `.claude/docs` is kept up to date; `.agents/` stays untouched even though it now differs |
+| D32 | Build order | The policy reader (F6, TODO item 8) is built before Release a seat (F4, item 5), so refund previews only ever come from AI-read, organiser-confirmed rules. No hand-written or fallback rules |
+| D33 | OpenAI model (was O2) | Code reads the model id from `OPENAI_MODEL`; nothing hard-coded. Use a small, cheap model (for example `gpt-5.4-mini`); the user sets the value in `.env.local` and on Render |
+| D34 | PayPal fee on refunds (was O6) | The organiser absorbs it. The holder receives exactly what the policy rule gives |
+| D35 | Refund timing | The refund amount is computed when the seat is resold, using the time window active at that moment. The release preview shows the amount now and when and to what it changes |
+| D36 | Policy edits | A released ticket keeps a copy of the confirmed rule from the moment of release; a later policy change applies only to later releases |
+| D37 | Bad policy reading | Reword and re-read only. No manual editing of the structured rule; nothing is confirmed until the policy reads cleanly, so every clause traces to a verbatim sentence |
+| D38 | Cutoff return | Sweep on read: before tickets or released seats are read, released tickets past the cutoff return to `valid` in one database function. A cron may call the same function after deploy |
+| D39 | Rule format | Clauses of: percent of the price paid, flat fee, optional named tier, optional "within N hours of the start" window. Percent is 1-100 (D44). Exactly one general clause is required |
+| D40 | Rule precedence | An active time window beats any clause without one; the tightest active window applies; at the same window, a tier-specific clause beats a general one |
+| D41 | Refund rounding | Percentage is rounded down to the cent, the flat fee is subtracted after, and the result is never below $0 |
+| D43 | Hand-written rules (amends D32) | The policy reader is not on the main demo path. An event whose policy text the reader cannot read cleanly gets a hand-written rule by migration so release is never blocked. "No refunds within 24h." is read as a full refund whenever the seat is resold (see D44) |
+| D44 | Resale always pays | A resold seat always pays the holder something. "No refund" wording and "full refund up to N hours before" time limits are about ordinary refunds from the organiser, not resale, so they create no resale clause: the general clause applies right up to the release cutoff. Explicit resale windows ("75% within 24 hours") still apply. Code rejects any rule that would pay $0 for a ticket type |
+| D45 | Releasing several tickets | "Release seat" opens one confirm card with that ticket ticked and the holder's other releasable tickets for the same event as checkboxes; one confirmation releases the selection |
+| D46 | Take back | One click, no confirm card; a toast reports the result |
+| D47 | Notifications (was O8) | In-app only: status and a short explanation on My tickets and Standby. No email |
+| D42 | Organiser UI | A "My events" page at `/manage`, shown only to the organiser persona, for reading and confirming policies; the dashboard (item 11) grows from it |
+
 ## Open (ask when the feature is reached)
 
 | # | Topic | Needed for |
 |---|---|---|
-| O2 | OpenAI model ID | F5-F7 |
 | O5 | Partial fills: may a request for 3 seats be offered 2? | F5 |
-| O6 | Who absorbs PayPal's non-refunded fee when a holder is refunded | F5, F6 |
 | O7 | Matching trigger: on every release, on a timer, or both | F5 |
-| O8 | Notifications: in-app only, or email as well | F3-F5 |
 | O9 | Where exactly AG Grid and Bryntum appear, and Bryntum trial licence acceptance | F8 |
 | O10 | Render service shape (web only, or web plus worker/cron) and plan | Deploy, F10 |
 | O11 | Whether the old `EventsMate_Coding_Agent_Brief.md` is deleted or kept as history | Cleanup |

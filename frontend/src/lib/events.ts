@@ -1,11 +1,12 @@
 import "server-only";
+import { parseRefundRule } from "@/lib/refund-rule";
 import { standbyCountsByEvent } from "@/lib/standby";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { EventWithTiers } from "@/lib/types";
 
 // Public fields only.
 const EVENT_COLUMNS =
-  "id,title,description,category,venue,city,timezone,starts_at,ends_at,refund_policy_text," +
+  "id,title,description,category,venue,city,timezone,starts_at,ends_at,refund_policy_text,refund_rule," +
   "ticket_tiers(id,name,description,price_cents,currency,capacity,sold_count,sort_order)";
 
 /** Published events that have not ended, soonest first, each with its tiers. */
@@ -41,5 +42,10 @@ async function withStandbyCounts(
   events: Omit<EventWithTiers, "standby_count">[],
 ): Promise<EventWithTiers[]> {
   const counts = await standbyCountsByEvent(events.map((event) => event.id));
-  return events.map((event) => ({ ...event, standby_count: counts.get(event.id) ?? 0 }));
+  return events.map((event) => ({
+    ...event,
+    // Never hand the browser a rule that would not evaluate.
+    refund_rule: parseRefundRule(event.refund_rule),
+    standby_count: counts.get(event.id) ?? 0,
+  }));
 }
