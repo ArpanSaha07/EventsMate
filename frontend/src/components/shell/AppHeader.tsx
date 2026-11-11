@@ -3,9 +3,17 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Sparkles } from "lucide-react";
+import { Menu, Sparkles } from "lucide-react";
 import { cn } from "cn";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { PersonaSwitcher } from "@/components/shell/PersonaSwitcher";
 import { usePersona, type Persona } from "@/components/shell/PersonaProvider";
 
@@ -60,6 +68,50 @@ function PlainNavLinks() {
   ));
 }
 
+/** Below `md` the links do not fit in the bar, so they move into this menu. */
+function MobileNavMenu() {
+  const pathname = usePathname();
+  const items = useNavItems();
+  const planActive = pathname.startsWith("/plan");
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger render={<Button variant="outline" size="icon" aria-label="Open menu" />}>
+        <Menu aria-hidden />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-52">
+        {items.map((item) => {
+          const active = isActive(item, pathname);
+          return (
+            <DropdownMenuItem
+              key={item.href}
+              render={<Link href={item.href} aria-current={active ? "page" : undefined} />}
+              className={cn("py-2", active && "bg-muted font-medium")}
+            >
+              {item.label}
+            </DropdownMenuItem>
+          );
+        })}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          render={<Link href="/plan" aria-current={planActive ? "page" : undefined} />}
+          className={cn("py-2", planActive && "bg-muted font-medium")}
+        >
+          Plan with AI
+          <Sparkles className="ml-auto size-3.5 text-primary" aria-hidden />
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function MobileNavFallback() {
+  return (
+    <Button variant="outline" size="icon" aria-label="Open menu" disabled>
+      <Menu aria-hidden />
+    </Button>
+  );
+}
+
 function PlanWithAiChip() {
   const pathname = usePathname();
   const active = pathname.startsWith("/plan");
@@ -100,11 +152,12 @@ export function AppHeader() {
           EventsMate
         </Link>
 
-        <nav aria-label="Main" className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+        <nav aria-label="Main" className="hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto md:flex">
           <Suspense fallback={<PlainNavLinks />}>
             <ActiveNavLinks />
           </Suspense>
         </nav>
+        <div className="flex-1 md:hidden" />
 
         <Badge
           variant="outline"
@@ -113,10 +166,17 @@ export function AppHeader() {
         >
           Sandbox
         </Badge>
-        <Suspense fallback={<PlanWithAiFallback />}>
-          <PlanWithAiChip />
-        </Suspense>
+        <div className="hidden md:contents">
+          <Suspense fallback={<PlanWithAiFallback />}>
+            <PlanWithAiChip />
+          </Suspense>
+        </div>
         <PersonaSwitcher />
+        <nav aria-label="Main menu" className="md:hidden">
+          <Suspense fallback={<MobileNavFallback />}>
+            <MobileNavMenu />
+          </Suspense>
+        </nav>
       </div>
     </header>
   );

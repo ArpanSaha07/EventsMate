@@ -42,7 +42,7 @@ export function PersonaSwitcher() {
         render={<Button variant="outline" aria-label="Switch demo person" />}
       >
         <UserRound aria-hidden />
-        <span className="max-w-32 truncate">{current ? current.name : "Choose a person"}</span>
+        <span className="max-w-24 truncate sm:max-w-32">{current ? current.name : "Choose a person"}</span>
         <ChevronDown aria-hidden className="text-muted-foreground" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">
