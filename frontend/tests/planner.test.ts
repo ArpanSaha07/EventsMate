@@ -6,8 +6,7 @@ import {
   findMatchingEvents,
   matchesDateConstraint,
   getLowestTier,
-  isEventSoldOut,
-  calculateRelevanceScore,
+  planEvents,
 } from "@/lib/discovery/planner";
 import type { EventWithTiers } from "@/lib/types";
 
@@ -211,5 +210,55 @@ describe("Planner Logic", () => {
     expect(matchesDateConstraint("2026-11-17T18:00:00-08:00", "America/Los_Angeles", "weekend")).toBe(false);
     // Saturday 2026-11-21 matches targetDayOfWeek=6
     expect(matchesDateConstraint("2026-11-21T09:30:00-08:00", "America/Los_Angeles", "weekend", 6)).toBe(true);
+  });
+
+  it("Requirement 1: attaches purchase action proposal with 'Should I purchase a ticket?' when seats are available", async () => {
+    const res = await planEvents(
+      [{ role: "user", content: "Show me the RAG workshop" }],
+      mockEvents,
+      {},
+    );
+
+    expect(res.message.events).toBeDefined();
+    expect(res.message.events!.length).toBeGreaterThan(0);
+    expect(res.message.actionProposal).toBeDefined();
+    expect(res.message.actionProposal?.type).toBe("purchase");
+    expect(res.message.actionProposal?.promptText).toBe("Should I purchase a ticket?");
+    expect(res.message.actionProposal?.status).toBe("pending");
+    expect(res.message.content).toContain("Should I purchase a ticket?");
+  });
+
+  it("Requirement 2: attaches standby action proposal and explains full capacity when event is sold out", async () => {
+    // Event where all tiers are sold out
+    const soldOutEvent: EventWithTiers = {
+      ...mockEvents[0],
+      id: "ev-sold-out",
+      title: "Completely Sold Out AI Summit",
+      ticket_tiers: [
+        {
+          id: "t-so-1",
+          name: "General",
+          description: "Sold out",
+          price_cents: 5000,
+          currency: "USD",
+          capacity: 10,
+          sold_count: 10, // Full
+          sort_order: 1,
+        },
+      ],
+    };
+
+    const res = await planEvents(
+      [{ role: "user", content: "Show me the AI summit" }],
+      [soldOutEvent],
+      {},
+    );
+
+    expect(res.message.events).toBeDefined();
+    expect(res.message.actionProposal).toBeDefined();
+    expect(res.message.actionProposal?.type).toBe("standby");
+    expect(res.message.actionProposal?.promptText).toContain("join the standby list");
+    expect(res.message.content).toContain("is currently full");
+    expect(res.message.content).toContain("no upfront charge");
   });
 });

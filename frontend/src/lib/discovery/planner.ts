@@ -3,6 +3,7 @@ import { formatMoney } from "@/lib/money";
 import type { EventWithTiers, Tier } from "@/lib/types";
 import { getOpenAIClient, getOpenAIModel } from "@/lib/discovery/openai";
 import type {
+  ActionProposal,
   BudgetSummary,
   ChatMessage,
   PlanApiResponse,
@@ -195,8 +196,6 @@ export async function extractConstraints(
   messages: Array<{ role: "user" | "assistant"; content: string }>,
   currentPreferences: SessionPreferences = {},
 ): Promise<ExtractedConstraints> {
-  const client = getOpenAIClient();
-  const model = getOpenAIModel();
   const nowTz = getNowInTimezone("America/Los_Angeles");
 
   const systemPrompt = `You are the event discovery assistant for EventsMate.
@@ -233,6 +232,8 @@ Important Rules:
 - If no date or budget is given, do NOT ask for clarification unless the query is completely empty. Proceed with sensible defaults (upcoming dates, any budget) and state the assumption.`;
 
   try {
+    const client = getOpenAIClient();
+    const model = getOpenAIModel();
     const response = await client.chat.completions.create({
       model,
       response_format: { type: "json_object" },
@@ -544,6 +545,7 @@ export async function planEvents(
 
   // 5. Generate friendly explanation
   let explanation = "";
+  let actionProposal: ActionProposal | undefined = undefined;
 
   if (validatedEvents.length === 0) {
     // Honest "nothing found" answer with suggested alternatives
@@ -590,6 +592,40 @@ export async function planEvents(
     if (soldOutExcluded) {
       explanation += `\n\n*(Note: Some sold-out events were excluded from this recommendation).*`;
     }
+
+    // Determine purchase or standby action in code
+    const primaryEvent = validatedEvents[0];
+    const availableTiers = primaryEvent.ticket_tiers.filter((t) => t.sold_count < t.capacity);
+    const soldOutTiers = primaryEvent.ticket_tiers.filter((t) => t.sold_count >= t.capacity);
+
+    if (availableTiers.length === 0) {
+      // Event is full
+      explanation += `\n\n**"${primaryEvent.title}" is currently full.**\nDo you want me to join the standby list so you get a ticket as soon as one becomes available? (A hold is placed with no upfront charge, and your ticket is issued automatically if a seat becomes available).`;
+      actionProposal = {
+        type: "standby",
+        eventId: primaryEvent.id,
+        selectedTierId: soldOutTiers[0]?.id ?? "",
+        soldOutTiers,
+        promptText:
+          "Do you want me to join the standby list so you get a ticket as soon as one becomes available?",
+        status: "pending",
+      };
+    } else {
+      // Seats available
+      if (soldOutTiers.length > 0) {
+        explanation += `\n\n*(Note: Some tiers like ${soldOutTiers.map((t) => `"${t.name}"`).join(", ")} are sold out, but standby is available if you prefer those).*`;
+      }
+      explanation += `\n\nShould I purchase a ticket?`;
+      actionProposal = {
+        type: "purchase",
+        eventId: primaryEvent.id,
+        selectedTierId: availableTiers[0].id,
+        availableTiers,
+        soldOutTiers: soldOutTiers.length > 0 ? soldOutTiers : undefined,
+        promptText: "Should I purchase a ticket?",
+        status: "pending",
+      };
+    }
   }
 
   const reply: ChatMessage = {
@@ -598,6 +634,7 @@ export async function planEvents(
     content: explanation,
     events: validatedEvents.length > 0 ? validatedEvents : undefined,
     budgetSummary: budgetSummary ?? undefined,
+    actionProposal,
     createdAt: new Date().toISOString(),
   };
 

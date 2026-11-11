@@ -1,4 +1,4 @@
-import type { EventWithTiers } from "@/lib/types";
+import type { EventWithTiers, Tier } from "@/lib/types";
 
 export type ChatRole = "user" | "assistant";
 
@@ -8,6 +8,27 @@ export type BudgetSummary = {
   budgetCents: number;
 };
 
+export type PurchaseActionProposal = {
+  type: "purchase";
+  eventId: string;
+  selectedTierId: string;
+  availableTiers: Tier[];
+  soldOutTiers?: Tier[];
+  promptText: string;
+  status: "pending" | "confirmed" | "declined";
+};
+
+export type StandbyActionProposal = {
+  type: "standby";
+  eventId: string;
+  selectedTierId: string;
+  soldOutTiers: Tier[];
+  promptText: string;
+  status: "pending" | "confirmed" | "declined";
+};
+
+export type ActionProposal = PurchaseActionProposal | StandbyActionProposal;
+
 export type ChatMessage = {
   id: string;
   role: ChatRole;
@@ -15,6 +36,7 @@ export type ChatMessage = {
   events?: EventWithTiers[];
   budgetSummary?: BudgetSummary;
   clarification?: boolean;
+  actionProposal?: ActionProposal;
   createdAt: string;
 };
 
@@ -45,3 +67,4 @@ export type PlanApiResponse = {
   message: ChatMessage;
   preferences: SessionPreferences;
 };
+

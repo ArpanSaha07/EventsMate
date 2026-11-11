@@ -21,3 +21,4 @@ export function getOpenAIModel(): string {
   const cleaned = raw.split("#")[0].trim();
   return cleaned || "gpt-4o-mini";
 }
+

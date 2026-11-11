@@ -2,19 +2,40 @@
 
 import { useState, useRef, useEffect } from "react";
 import { Sparkles, Send, RotateCcw, AlertCircle, Bot, User } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { BuyDialog } from "@/components/checkout/BuyDialog";
+import { ActionPrompt } from "@/components/discovery/ActionPrompt";
 import { SuggestionChips } from "@/components/discovery/SuggestionChips";
 import { EventCard } from "@/components/events/EventCard";
+import { usePersona } from "@/components/shell/PersonaProvider";
+import { StandbyDialog } from "@/components/standby/StandbyDialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { formatMoney } from "@/lib/money";
 import type { ChatMessage, PlanApiResponse, SessionPreferences } from "@/lib/discovery/types";
+import type { EventWithTiers, Tier } from "@/lib/types";
 
 export function PlanChat() {
+  const { current } = usePersona();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [preferences, setPreferences] = useState<SessionPreferences>({});
   const [lastUserPrompt, setLastUserPrompt] = useState<string | null>(null);
+
+  // Active dialog states for existing checkout and standby
+  const [activeBuy, setActiveBuy] = useState<{
+    open: boolean;
+    event: EventWithTiers | null;
+    tier: Tier | null;
+    quantity: number;
+  }>({ open: false, event: null, tier: null, quantity: 1 });
+
+  const [activeStandby, setActiveStandby] = useState<{
+    open: boolean;
+    event: EventWithTiers | null;
+    initialTierId: string | null;
+  }>({ open: false, event: null, initialTierId: null });
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -81,10 +102,118 @@ export function PlanChat() {
 
   const handleRetry = () => {
     if (lastUserPrompt) {
-      // Remove the last user message before retrying to prevent duplicate display
-      setMessages((prev) => (prev.length > 0 && prev[prev.length - 1].role === "user" ? prev.slice(0, -1) : prev));
+      setMessages((prev) =>
+        prev.length > 0 && prev[prev.length - 1].role === "user" ? prev.slice(0, -1) : prev,
+      );
       sendMessage(lastUserPrompt);
     }
+  };
+
+  const handleConfirmPurchase = (
+    messageId: string,
+    event: EventWithTiers,
+    tierId: string,
+    quantity: number,
+  ) => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === messageId && m.actionProposal
+          ? {
+              ...m,
+              actionProposal: {
+                ...m.actionProposal,
+                selectedTierId: tierId,
+                status: "confirmed" as const,
+              },
+            }
+          : m,
+      ),
+    );
+
+    const chosenTier =
+      event.ticket_tiers.find((t) => t.id === tierId) ?? event.ticket_tiers[0];
+    if (chosenTier) {
+      setActiveBuy({
+        open: true,
+        event,
+        tier: chosenTier,
+        quantity,
+      });
+    }
+  };
+
+  const handlePaid = (event: EventWithTiers, tier: Tier, quantity: number) => {
+    setActiveBuy({ open: false, event: null, tier: null, quantity: 1 });
+    const successMsg: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: "assistant",
+      content: `🎉 Payment verified! Your ${quantity} ticket${quantity > 1 ? "s" : ""} for "${event.title}" (${tier.name} - ${formatMoney(tier.price_cents * quantity)}) have been issued.\n\nYou can view your tickets in My tickets (/tickets).`,
+      createdAt: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, successMsg]);
+  };
+
+  const handleConfirmStandby = (messageId: string, event: EventWithTiers, tierId: string) => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === messageId && m.actionProposal
+          ? {
+              ...m,
+              actionProposal: {
+                ...m.actionProposal,
+                selectedTierId: tierId,
+                status: "confirmed" as const,
+              },
+            }
+          : m,
+      ),
+    );
+
+    setActiveStandby({
+      open: true,
+      event,
+      initialTierId: tierId,
+    });
+  };
+
+  const handleAuthorized = (event: EventWithTiers, tierId: string) => {
+    setActiveStandby({ open: false, event: null, initialTierId: null });
+    const chosenTier = event.ticket_tiers.find((t) => t.id === tierId);
+    const tierName = chosenTier ? ` for ${chosenTier.name}` : "";
+    const successMsg: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: "assistant",
+      content: `⏳ You're on standby! A PayPal hold is in place with no upfront charge for "${event.title}"${tierName}.\n\nIf a seat frees up before cutoff, the ticket will be issued automatically. You can manage your request in Standby (/standby).`,
+      createdAt: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, successMsg]);
+  };
+
+  const handleDecline = (messageId: string, type: "purchase" | "standby") => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === messageId && m.actionProposal
+          ? {
+              ...m,
+              actionProposal: {
+                ...m.actionProposal,
+                status: "declined" as const,
+              },
+            }
+          : m,
+      ),
+    );
+
+    const declineMsg: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: "assistant",
+      content:
+        type === "purchase"
+          ? "No problem! Would you like to refine your search, adjust your budget, or explore different dates?"
+          : "Understood! Let me know if you would like to explore other upcoming events with open seats instead.",
+      createdAt: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, declineMsg]);
   };
 
   return (
@@ -178,6 +307,21 @@ export function PlanChat() {
                     ))}
                   </div>
                 )}
+
+                {/* Action Prompt (Purchase or Standby) */}
+                {message.actionProposal && message.events && message.events.length > 0 && (
+                  <ActionPrompt
+                    proposal={message.actionProposal}
+                    isLoggedIn={Boolean(current)}
+                    onConfirmPurchase={(tierId, qty) =>
+                      handleConfirmPurchase(message.id, message.events![0], tierId, qty)
+                    }
+                    onConfirmStandby={(tierId) =>
+                      handleConfirmStandby(message.id, message.events![0], tierId)
+                    }
+                    onDecline={() => handleDecline(message.id, message.actionProposal!.type)}
+                  />
+                )}
               </div>
 
               {message.role === "user" && (
@@ -207,7 +351,10 @@ export function PlanChat() {
 
         {/* Inline Error with Retry */}
         {error && (
-          <div className="flex items-center justify-between rounded-xl border border-destructive/30 bg-destructive/5 p-3.5 text-sm text-destructive" role="alert">
+          <div
+            className="flex items-center justify-between rounded-xl border border-destructive/30 bg-destructive/5 p-3.5 text-sm text-destructive"
+            role="alert"
+          >
             <div className="flex items-center gap-2">
               <AlertCircle className="size-4 shrink-0" aria-hidden />
               <span>{error}</span>
@@ -287,6 +434,30 @@ export function PlanChat() {
           <span className="hidden sm:inline">Send</span>
         </Button>
       </form>
+
+      {/* Existing Buy Dialog triggered from chat */}
+      {activeBuy.open && activeBuy.event && activeBuy.tier && (
+        <BuyDialog
+          event={activeBuy.event}
+          tier={activeBuy.tier}
+          open={activeBuy.open}
+          onOpenChange={(open) => setActiveBuy((prev) => ({ ...prev, open }))}
+          onPaid={() => handlePaid(activeBuy.event!, activeBuy.tier!, activeBuy.quantity)}
+        />
+      )}
+
+      {/* Existing Standby Dialog triggered from chat */}
+      {activeStandby.open && activeStandby.event && activeStandby.initialTierId && (
+        <StandbyDialog
+          event={activeStandby.event}
+          initialTierId={activeStandby.initialTierId}
+          open={activeStandby.open}
+          onOpenChange={(open) => setActiveStandby((prev) => ({ ...prev, open }))}
+          onAuthorized={() =>
+            handleAuthorized(activeStandby.event!, activeStandby.initialTierId!)
+          }
+        />
+      )}
     </div>
   );
 }
