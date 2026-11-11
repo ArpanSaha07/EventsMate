@@ -20,7 +20,7 @@ export async function GET() {
         .from("events")
         .select("id", { count: "exact", head: true });
       if (error) throw new Error(`Supabase query failed: ${error.message}`);
-      if (!count) throw new Error("Connected, but the events table is empty: run supabase/seed.sql.");
+      if (!count) throw new Error("Connected, but the events table is empty: run `npm run db:push` then `npm run db:seed`.");
       return `Connected; ${count} events seeded.`;
     }),
     run(async () => {

@@ -11,10 +11,10 @@ const LABELS: Record<string, string> = {
   supabase: "Supabase",
   paypal: "PayPal sandbox",
   openai: "OpenAI",
-  session: "Guest session",
+  session: "Demo session",
 };
 
-/** Live integration status from /api/health. Temporary home content until the chat UI lands. */
+/** Live integration status from /api/health. Shown on the home page until setup is complete. */
 export function SetupStatus() {
   const [health, setHealth] = useState<Health | null>(null);
   const [failed, setFailed] = useState(false);

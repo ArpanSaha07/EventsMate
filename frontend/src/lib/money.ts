@@ -14,6 +14,6 @@ export function decimalStringToCents(value: string | undefined): number | null {
   return Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
 }
 
-export function formatMoney(cents: number, currency = "CAD"): string {
-  return new Intl.NumberFormat("en-CA", { style: "currency", currency }).format(cents / 100);
+export function formatMoney(cents: number, currency = "USD"): string {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(cents / 100);
 }

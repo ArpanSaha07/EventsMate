@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { AppHeader } from "@/components/shell/AppHeader";
+import { PersonaProvider } from "@/components/shell/PersonaProvider";
+import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -14,7 +17,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "EventsMate",
-  description: "AI event concierge with human-approved PayPal sandbox checkout.",
+  description:
+    "An AI agent that fills empty seats at sold-out events, with PayPal holds, refunds and ticket transfers.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
@@ -23,7 +27,13 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="flex min-h-full flex-col">
+        <PersonaProvider>
+          <AppHeader />
+          <div className="flex flex-1 flex-col">{children}</div>
+          <Toaster position="top-center" />
+        </PersonaProvider>
+      </body>
     </html>
   );
 }

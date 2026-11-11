@@ -13,7 +13,8 @@ export function supabaseAdmin(): SupabaseClient {
     throw new Error("Supabase is not configured: set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.");
   }
 
-  client = createClient(url, key, {
+  // Accept a pasted REST endpoint (".../rest/v1/") as well as the bare project URL.
+  client = createClient(new URL(url).origin, key, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   return client;

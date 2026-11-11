@@ -1,1 +1,1 @@
-@.agents/Agents.md
+@.claude/AGENTS.md

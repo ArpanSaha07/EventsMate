@@ -1,35 +1,75 @@
 # EventsMate
 
-An AI event concierge: describe what you want to attend, the agent searches a catalog of
-EventsMate-native events, proposes an itinerary within your budget, and prepares a ticket
-purchase that you approve and pay through PayPal.
+**An AI agent that fills empty seats at sold-out events.**
+
+Fans go on standby with a PayPal hold. When a ticket holder can't make it, the agent matches
+the released seat to a waiting fan, captures the hold, refunds the holder under the organiser's
+policy, and transfers the ticket. The holder is refunded only from a completed resale, so the
+organiser never loses money.
 
 Built for the PayPal AI Hackathon (November 2026).
 
-**Honest scope:** payments run in the **PayPal sandbox only**. The catalog is a seeded set of
-**fictional demo events**; tickets are EventsMate-native and are not valid for any third-party
-platform. One merchant (EventsMate), one aggregated order; no payouts to organizers.
+> **Status: in development.** The table below says what works today. This README is updated as
+> each feature lands.
 
-## Status
+## How it works
 
-| Phase | State |
+1. **Standby.** A fan requests seats at a sold-out event (quantity, accepted tiers, price cap,
+   optional conditions in plain words) and approves one PayPal authorization. Nothing is charged.
+2. **Release.** A holder says they can't attend. They see what they would get back and why,
+   then release the seat. It stays theirs until resold.
+3. **Match and settle.** The agent allocates released seats to requests, then for each match:
+   capture the hold → refund the holder → transfer the ticket.
+4. **Organiser view.** Seats recovered, revenue kept, and a log of every action with its
+   PayPal reference.
+
+## Where AI is used
+
+| Surface | What the model does | What code checks |
+|---|---|---|
+| Matching | Proposes which requests get which released seats | Tier, quantity, price cap, conditions and queue order, before any money moves |
+| Refund policy reader | Turns the organiser's plain-language policy into a structured rule | Quotes must appear in the policy; organiser confirms |
+| Command bar | Turns a typed sentence into a proposed action | The user confirms; the action runs through the normal routes |
+
+## PayPal usage (sandbox only)
+
+Orders v2 (capture and authorize intents) · Payments v2 (capture authorization, void,
+reauthorize, refund) · Webhooks with signature verification · JavaScript SDK v6 for buyer approval.
+
+## Honest scope
+
+- Payments run in the **PayPal sandbox only**. No real money moves.
+- Events are **seeded demo events** hosted on EventsMate. Tickets are not valid anywhere else.
+- One merchant account; no payouts to organisers.
+- Sign-in is a demo persona switcher, not real authentication.
+
+## Build status
+
+| Feature | State |
 |---|---|
-| A. Stack, schema, seed, `/api/events` | Code done; needs your Supabase project |
-| B. PayPal checkout vertical slice | SDKs wired (`src/lib/paypal`, `PayPalCheckout`); routes not built yet |
-| C. OpenAI agent | Not started |
-| D. Product UI | Not started (home page shows integration status) |
+| Project scaffold, health check | Done |
+| Schema, seed, persona switcher, app shell | Done |
+| Events and tiers | Not started |
+| Buy a ticket | Not started |
+| Standby hold | Not started |
+| Release a seat | Not started |
+| Matching and settlement | Not started |
+| Refund policy reader | Not started |
+| Command bar | Not started |
+| Organiser dashboard | Not started |
+| Webhooks and hosted demo | Not started |
 
 ## Stack
 
 Next.js 16 (App Router, Route Handlers) · React 19 · TypeScript · Tailwind CSS 4 · shadcn/ui ·
-Zod · OpenAI Node SDK · Supabase Postgres · PayPal Orders v2 (`@paypal/paypal-server-sdk`) and
-PayPal JS SDK v6 (`@paypal/react-paypal-js/sdk-v6`) · Vitest.
+Zod · OpenAI · Supabase Postgres · PayPal server SDK and JS SDK v6 · AG Grid · Bryntum ·
+Render · Vitest.
 
-The app lives in `frontend/`. It is the whole product: there is no separate backend service.
+The app lives in `frontend/`. There is no separate backend service.
 
 ## Local setup
 
-Requires Node.js 22+ (developed on 24).
+Requires Node.js 22+.
 
 ```bash
 cd frontend
@@ -38,41 +78,19 @@ cp .env.example .env.local   # then fill in the values below
 npm run dev                  # http://localhost:3000
 ```
 
-The home page (and `GET /api/health`) shows a live check for each integration. Setup is
-complete when all four pass.
+The home page and `GET /api/health` show a live check for each integration.
 
-### 1. Supabase
-
-1. Create a project at https://supabase.com/dashboard.
-2. Open **SQL Editor**, paste and run `frontend/supabase/migrations/001_initial.sql`.
-3. Paste and run `frontend/supabase/seed.sql` (12 demo events, Nov 13–21, 2026).
-4. From **Project Settings → API**, copy into `.env.local`:
-   - `SUPABASE_URL` — the project URL
-   - `SUPABASE_SERVICE_ROLE_KEY` — the `service_role` (or `sb_secret_…`) key. Server-only.
-
-### 2. PayPal sandbox
-
-1. Sign in at https://developer.paypal.com/dashboard with **Sandbox** selected.
-2. **Apps & Credentials → Create App** (type: Merchant). Copy the Client ID and Secret:
-   - `PAYPAL_CLIENT_ID` and `NEXT_PUBLIC_PAYPAL_CLIENT_ID` — the same Client ID
-   - `PAYPAL_CLIENT_SECRET` — the Secret. Server-only.
-3. **Testing Tools → Sandbox Accounts**: note the email and password of a **Personal**
-   (buyer) account. You log in with it in the PayPal popup during the demo.
-4. The seed uses CAD. If checkout later rejects the currency, enable CAD for the sandbox
-   business account or create a Canadian sandbox business account.
-
-### 3. OpenAI
-
-Create a key at https://platform.openai.com/api-keys and set `OPENAI_API_KEY` and
-`OPENAI_MODEL` (any current model that supports function calling and structured outputs).
-
-### 4. Session secret
-
-`SESSION_SECRET` signs the guest session cookie:
-
-```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-```
+1. **Supabase.** Create a project at supabase.com. Set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+   and `SUPABASE_DB_URL` (Connect > Session pooler connection string; the direct connection is IPv6-only). Then run
+   `npm run db:push` to apply migrations and `npm run db:seed` to load demo data.
+   `db:seed` wipes and reloads everything; event dates are relative to today, so re-run it
+   whenever the demo needs resetting.
+2. **PayPal sandbox.** In the developer dashboard create a Merchant app; set
+   `PAYPAL_CLIENT_ID`, `NEXT_PUBLIC_PAYPAL_CLIENT_ID` (same value) and `PAYPAL_CLIENT_SECRET`.
+   Note a sandbox Personal account to pay with.
+3. **OpenAI.** Set `OPENAI_API_KEY` and `OPENAI_MODEL`.
+4. **Session secret.** `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
+   into `SESSION_SECRET`.
 
 ## Scripts (run in `frontend/`)
 
@@ -83,17 +101,13 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 | `npm run typecheck` | Route type generation + `tsc` |
 | `npm run lint` | ESLint |
 | `npm test` | Vitest unit tests |
+| `npm run db:push` | Apply new migrations (Supabase CLI) |
+| `npm run db:seed` | Wipe and reseed demo data |
 
-## Notes
+## Project docs
 
-- Secrets live only in `frontend/.env.local`, which is git-ignored. Never prefix a secret
-  with `NEXT_PUBLIC_`.
-- All money is integer cents; `src/lib/money.ts` holds the only conversions.
-- Tickets are issued by the `fulfill_checkout` Postgres function, in one transaction, only
-  after the server has verified a COMPLETED PayPal capture.
-- Next.js 16 runs with Cache Components enabled, which forbids `export const runtime` in
-  route files. Route Handlers already default to the Node.js runtime.
+Product scope, decisions and architecture are in [`.claude/docs/`](.claude/docs/).
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).

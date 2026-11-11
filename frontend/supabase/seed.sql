@@ -1,79 +1,100 @@
--- EventsMate demo catalog. All events are FICTIONAL, EventsMate-native demo listings.
--- Times are America/Toronto (EST, UTC-05:00 in November). Demo weekend: Sat Nov 14 – Sun Nov 15, 2026.
--- Safe to re-run: clears unsold demo data first. If tickets already exist, delete
--- tickets and checkouts manually before re-seeding.
+-- EventsMate demo seed. Everything here is FICTIONAL demo data.
+--
+-- DESTRUCTIVE: wipes all people, events, orders and tickets, then reseeds.
+-- Dates are relative to "today" in San Francisco, so events are always upcoming
+-- and always inside PayPal's 29-day authorization window. Re-run any time
+-- (`npm run db:seed`) to reset the demo.
+--
+-- Seeded "sold" seats belong to a hidden filler profile and have no PayPal
+-- capture, so they can never be released or refunded. The holder personas buy
+-- the last seats for real in the sandbox; those tickets are the releasable ones.
 
-delete from events where id not in (select event_id from tickets);
+-- One DO block, so the whole seed is a single statement (the Supabase CLI's
+-- `db query` runs one statement) and a single transaction.
+do $seed$
+declare
+  today date := (now() at time zone 'America/Los_Angeles')::date;
+begin
 
-insert into events (title, description, category, tags, venue, city, starts_at, ends_at, price_cents, capacity) values
-('Build Your First AI Agent (Hands-on)',
- 'Demo event. A guided workshop: wire a tool-calling agent to a real API and ship a small working assistant by the end.',
- 'Workshop', '{ai,agents,hands-on,workshop,developers}',
- 'Atelier Mile End (demo venue)', 'Montréal',
- '2026-11-14 10:00:00-05', '2026-11-14 12:30:00-05', 2500, 60),
+truncate table tickets, orders, ticket_tiers, events, profiles cascade;
 
-('Prompt to Product: LLM Prototyping Lab',
- 'Demo event. Bring a laptop. Small teams turn an idea into a working LLM prototype with structured outputs.',
- 'Workshop', '{ai,llm,hands-on,workshop,prototyping}',
- 'Studio Saint-Laurent (demo venue)', 'Montréal',
- '2026-11-14 14:00:00-05', '2026-11-14 17:00:00-05', 3000, 50),
+-- People ---------------------------------------------------------------------
 
-('RAG From Scratch: Hands-on Clinic',
- 'Demo event. Build retrieval pipelines step by step and learn where they break. Overlaps the agent workshop on purpose.',
- 'Workshop', '{ai,rag,hands-on,workshop,data}',
- 'Labo Griffintown (demo venue)', 'Montréal',
- '2026-11-14 11:00:00-05', '2026-11-14 13:30:00-05', 2000, 40),
+insert into profiles (slug, name, role, blurb, switchable, sort_order) values
+  ('priya',  'Priya Raman',   'organiser', 'Organiser, Bay Builders Collective', true, 1),
+  ('maya',   'Maya Chen',     'attendee',  'Ticket holder',                      true, 2),
+  ('daniel', 'Daniel Okafor', 'attendee',  'Ticket holder',                      true, 3),
+  ('sofia',  'Sofia Alvarez', 'attendee',  'Ticket holder',                      true, 4),
+  ('liam',   'Liam Turner',   'attendee',  'Fan looking for a seat',             true, 5),
+  ('aisha',  'Aisha Khan',    'attendee',  'Fan looking for a seat',             true, 6),
+  ('noah',   'Noah Kim',      'attendee',  'Fan looking for a seat',             true, 7),
+  ('others', 'Other attendees', 'attendee', 'Seeded filler ticket owners',       false, 99);
 
-('Montréal AI Founders Meetup',
- 'Demo event. Short founder talks followed by open networking for people building AI startups.',
- 'Meetup', '{ai,startup,networking,founders}',
- 'Le Salon Plateau (demo venue)', 'Montréal',
- '2026-11-14 18:30:00-05', '2026-11-14 21:00:00-05', 1500, 120),
+-- Events ---------------------------------------------------------------------
 
-('Sunday Hack Night: Agents & Payments',
- 'Demo event. An evening build sprint focused on agentic commerce. Pizza included.',
- 'Hack night', '{ai,agents,hackathon,hands-on,payments}',
- 'Garage Rosemont (demo venue)', 'Montréal',
- '2026-11-15 17:00:00-05', '2026-11-15 21:30:00-05', 1000, 80),
+insert into events
+  (organiser_id, title, description, category, venue, city, starts_at, ends_at, refund_policy_text)
+select p.id, e.title, e.description, e.category, e.venue, 'San Francisco',
+       ((today + e.day_offset) + e.start_time) at time zone 'America/Los_Angeles',
+       ((today + e.day_offset) + e.end_time) at time zone 'America/Los_Angeles',
+       e.refund_policy_text
+from profiles p,
+(values
+  ('Hands-on RAG Workshop',
+   'Demo event. Build a retrieval pipeline step by step and learn where it breaks. Bring a laptop.',
+   'Workshop', 'Mission Workshop Hall (demo venue)', 6, time '18:00', time '21:00',
+   'If your released seat is resold, you get a full refund minus a $2 processing fee.'),
+  ('Build Your First AI Agent',
+   'Demo event. Wire a tool-calling agent to a real API and leave with a small working assistant.',
+   'Workshop', 'SoMa Makers Loft (demo venue)', 8, time '10:00', time '13:00',
+   'Resold seats are refunded at 90% of the ticket price. Within 24 hours of the start time the refund is 75%.'),
+  ('SF AI Founders Mixer',
+   'Demo event. Short founder talks, then open networking for people building AI startups.',
+   'Meetup', 'Hayes Valley Commons (demo venue)', 4, time '18:30', time '21:00',
+   'Full refund when your seat is resold. No fees.'),
+  ('Design Sprint for AI Products',
+   'Demo event. A one-day sprint: frame a problem, prototype an AI feature, test it with users.',
+   'Workshop', 'Dogpatch Studio (demo venue)', 10, time '09:30', time '16:00',
+   'We refund 85% of what you paid if your seat is resold. VIP seats are refunded at 80% because catering is pre-ordered.'),
+  ('Agents & Payments Hack Night',
+   'Demo event. An evening build sprint on agentic commerce. Pizza included.',
+   'Hack night', 'Potrero Garage (demo venue)', 12, time '17:00', time '22:00',
+   'Resold seats get a full refund minus a $1 fee.'),
+  ('Applied Computer Vision Clinic',
+   'Demo event. Train and evaluate a small vision model on your own images. Small-group format.',
+   'Workshop', 'Mission Workshop Hall (demo venue)', 15, time '10:00', time '13:00',
+   'Half of the ticket price is refunded when a released seat is resold.')
+) as e(title, description, category, venue, day_offset, start_time, end_time, refund_policy_text)
+where p.slug = 'priya';
 
-('Applied Computer Vision Workshop',
- 'Demo event. Train and evaluate a small vision model on your own images. Premium, small-group format.',
- 'Workshop', '{ai,vision,hands-on,workshop,ml}',
- 'Atelier Mile End (demo venue)', 'Montréal',
- '2026-11-15 10:00:00-05', '2026-11-15 13:00:00-05', 4500, 24),
+-- Tiers ----------------------------------------------------------------------
+-- Tiers that are nearly sold out leave 1-3 seats for the holder personas to buy.
 
-('Design Systems for AI Interfaces',
- 'Demo event. A design session on patterns for chat, approval and agent-activity UI.',
- 'Design session', '{design,ux,ai,product}',
- 'Studio Saint-Laurent (demo venue)', 'Montréal',
- '2026-11-15 13:30:00-05', '2026-11-15 15:30:00-05', 2000, 45),
+insert into ticket_tiers (event_id, name, description, price_cents, capacity, sold_count, sort_order)
+select ev.id, t.name, t.description, t.price_cents, t.capacity, t.sold_count, t.sort_order
+from events ev
+join (values
+  ('Hands-on RAG Workshop',          'General', 'Workshop seat',                     3500, 40, 37, 1),
+  ('Hands-on RAG Workshop',          'VIP',     'Front tables and a 1:1 review',     6000, 10,  8, 2),
+  ('Build Your First AI Agent',      'General', 'Workshop seat',                     3000, 50, 48, 1),
+  ('Build Your First AI Agent',      'VIP',     'Front row and office hours after',  5500,  8,  7, 2),
+  ('SF AI Founders Mixer',           'General', 'Entry and one drink',               2000, 120, 64, 1),
+  ('Design Sprint for AI Products',  'General', 'Sprint seat and lunch',             4500, 30, 12, 1),
+  ('Design Sprint for AI Products',  'VIP',     'Sprint seat, lunch and mentor table', 8000, 6,  5, 2),
+  ('Agents & Payments Hack Night',   'General', 'Entry and pizza',                   1500, 80, 78, 1),
+  ('Applied Computer Vision Clinic', 'General', 'Clinic seat',                       5000, 24,  9, 1)
+) as t(event_title, name, description, price_cents, capacity, sold_count, sort_order)
+  on t.event_title = ev.title;
 
-('Startup Pitch Practice Night',
- 'Demo event. Practise a three-minute pitch and get structured feedback from peers.',
- 'Meetup', '{startup,pitching,networking,founders}',
- 'Le Salon Plateau (demo venue)', 'Montréal',
- '2026-11-13 18:00:00-05', '2026-11-13 20:30:00-05', 1200, 70),
+-- Filler tickets for the seeded sold counts -----------------------------------
 
-('Open Data Community Meetup (Free)',
- 'Demo event. Free community meetup on civic and open data projects.',
- 'Meetup', '{data,community,networking,free}',
- 'Bibliothèque Centre-Ville (demo venue)', 'Montréal',
- '2026-11-15 11:00:00-05', '2026-11-15 12:30:00-05', 0, 100),
+insert into tickets (event_id, tier_id, owner_id, ticket_number, unit_price_cents)
+select tt.event_id, tt.id, o.id,
+       'EM-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 10)),
+       tt.price_cents
+from ticket_tiers tt
+cross join lateral generate_series(1, tt.sold_count)
+cross join (select id from profiles where slug = 'others') o;
 
-('MLOps in Practice: Deploying Models',
- 'Demo event. Weeknight hands-on session on packaging, deploying and monitoring models.',
- 'Workshop', '{ai,mlops,hands-on,workshop,developers}',
- 'Labo Griffintown (demo venue)', 'Montréal',
- '2026-11-18 18:00:00-05', '2026-11-18 20:30:00-05', 3500, 40),
-
-('Toronto AI Builders Night',
- 'Demo event. Lightning demos from people shipping AI products. Different city, for location filtering.',
- 'Meetup', '{ai,startup,networking,demos}',
- 'Queen West Loft (demo venue)', 'Toronto',
- '2026-11-14 18:00:00-05', '2026-11-14 21:00:00-05', 2000, 150),
-
-('Intro to Fine-tuning Small Models',
- 'Demo event. Limited seats. Fine-tune a compact model on a laptop-sized dataset.',
- 'Workshop', '{ai,fine-tuning,hands-on,workshop,ml}',
- 'Garage Rosemont (demo venue)', 'Montréal',
- '2026-11-21 10:00:00-05', '2026-11-21 13:00:00-05', 4000, 30);
+end
+$seed$;
