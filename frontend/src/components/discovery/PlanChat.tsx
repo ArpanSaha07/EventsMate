@@ -78,7 +78,19 @@ export function PlanChat() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: updatedHistory.map((m) => ({ role: m.role, content: m.content })),
+          // Tell the model which events earlier replies showed as cards.
+          messages: updatedHistory.map((m) => {
+            const shown = [
+              m.events?.length ? `Available events shown: ${m.events.map((e) => e.title).join("; ")}` : "",
+              m.soldOutEvents?.length
+                ? `Sold-out events shown: ${m.soldOutEvents.map((e) => e.title).join("; ")}`
+                : "",
+            ].filter(Boolean);
+            return {
+              role: m.role,
+              content: shown.length ? `${m.content}\n[${shown.join(". ")}]` : m.content,
+            };
+          }),
           preferences,
         }),
       });
@@ -321,27 +333,56 @@ export function PlanChat() {
 
                 {/* Event Cards Grid */}
                 {message.events && message.events.length > 0 && (
-                  <div className="w-full grid gap-3 sm:grid-cols-2 pt-1">
-                    {message.events.map((ev) => (
-                      <EventCard key={ev.id} event={ev} />
-                    ))}
-                  </div>
+                  <section className="w-full space-y-2 pt-1">
+                    {!message.actionProposal && (
+                      <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                        Tickets available
+                      </h3>
+                    )}
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {message.events.map((ev) => (
+                        <EventCard key={ev.id} event={ev} />
+                      ))}
+                    </div>
+                  </section>
                 )}
 
-                {/* Action Prompt (Purchase or Standby) */}
-                {message.actionProposal && message.events && message.events.length > 0 && (
-                  <ActionPrompt
-                    proposal={message.actionProposal}
-                    isLoggedIn={Boolean(current)}
-                    onConfirmPurchase={(tierId, qty) =>
-                      handleConfirmPurchase(message.id, message.events![0], tierId, qty)
-                    }
-                    onConfirmStandby={(tierId) =>
-                      handleConfirmStandby(message.id, message.events![0], tierId)
-                    }
-                    onDecline={() => handleDecline(message.id, message.actionProposal!.type)}
-                  />
+                {/* Sold-out events come second */}
+                {message.soldOutEvents && message.soldOutEvents.length > 0 && (
+                  <section className="w-full space-y-2 pt-1">
+                    {!message.actionProposal && (
+                      <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                        Sold out · join standby
+                      </h3>
+                    )}
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {message.soldOutEvents.map((ev) => (
+                        <EventCard key={ev.id} event={ev} />
+                      ))}
+                    </div>
+                  </section>
                 )}
+
+                {/* Action Prompt (Purchase or Standby), only when the reply is about one event */}
+                {message.actionProposal &&
+                  (() => {
+                    const proposal = message.actionProposal;
+                    const target = [...(message.events ?? []), ...(message.soldOutEvents ?? [])].find(
+                      (ev) => ev.id === proposal.eventId,
+                    );
+                    if (!target) return null;
+                    return (
+                      <ActionPrompt
+                        proposal={proposal}
+                        isLoggedIn={Boolean(current)}
+                        onConfirmPurchase={(tierId, qty) =>
+                          handleConfirmPurchase(message.id, target, tierId, qty)
+                        }
+                        onConfirmStandby={(tierId) => handleConfirmStandby(message.id, target, tierId)}
+                        onDecline={() => handleDecline(message.id, proposal.type)}
+                      />
+                    );
+                  })()}
               </div>
 
               {message.role === "user" && (

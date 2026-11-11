@@ -86,7 +86,10 @@ export type ChatMessage = {
   role: ChatRole;
   content: string;
   intent?: PlannerIntent;
+  /** Matching events with at least one tier on sale. */
   events?: EventWithTiers[];
+  /** Matching events where every tier is sold out; shown after `events`. */
+  soldOutEvents?: EventWithTiers[];
   budgetSummary?: BudgetSummary;
   userTickets?: UserTicketsPayload;
   upcomingSchedule?: UpcomingSchedulePayload;

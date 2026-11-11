@@ -92,7 +92,14 @@ Sign-in is a demo persona switcher: seeded fans, holders and an organiser, no pa
 - Signed PayPal events are verified and reconciled so state stays correct if a browser
   closes mid-payment or an authorization is voided or expires on PayPal's side.
 
+### Extra. Plan with AI chat (D49)
+- A chat at `/plan` answers questions about the events on the platform from the live catalog.
+- Results show events with tickets available first, then sold-out events (join standby). If only
+  one group matches, only that group is shown.
+- A reply about a single event offers to buy (seats left) or join standby (sold out) through the
+  normal confirm dialogs. It also answers my tickets, what is next, and standby status.
+
 ## Not in scope
 
-See `future.md`: organiser-cancels-event refunds, conversational discovery, event creation UI,
+See `future.md`: organiser-cancels-event refunds, event creation UI,
 numbered seats, real accounts, live payments, third-party ticketing.

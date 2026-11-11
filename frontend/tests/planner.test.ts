@@ -2,16 +2,27 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
+// No network in unit tests: the model call fails and the keyword fallback runs.
+vi.mock("@/lib/discovery/openai", () => ({
+  getOpenAIClient: () => {
+    throw new Error("OpenAI is disabled in unit tests.");
+  },
+  getOpenAIModel: () => "test-model",
+}));
+
 import {
-  findMatchingEvents,
-  matchesDateConstraint,
-  getLowestTier,
   planEvents,
   fallbackClassifyIntent,
   groupTickets,
   detectScheduleOverlaps,
   formatStandbyStatus,
 } from "@/lib/discovery/planner";
+import {
+  buildCatalog,
+  fallbackSelect,
+  resolveSelection,
+  type Selection,
+} from "@/lib/discovery/catalog";
 import type { EventWithTiers, MyStandbyRequest, MyTicket } from "@/lib/types";
 
 const mockEvents: EventWithTiers[] = [
@@ -142,83 +153,158 @@ const mockEvents: EventWithTiers[] = [
 ];
 
 describe("Planner Logic", () => {
-  it("Scenario b: returns exactly two AI workshops whose combined price is <= $40", () => {
-    const result = findMatchingEvents(mockEvents, {
-      topics: ["AI", "workshop"],
-      category: "Workshop",
-      count: 2,
-      totalBudgetCents: 4000, // $40
-      dateType: "weekend",
-    });
-
-    expect(result.matchedEvents).toHaveLength(2);
-    // Combined price must be <= $4000 (ev-1 is $20, ev-2 is $18 => $38)
-    const totalSpent = result.matchedEvents.reduce(
-      (sum, ev) => sum + (getLowestTier(ev)?.price_cents ?? 0),
-      0,
-    );
-    expect(totalSpent).toBeLessThanOrEqual(4000);
-    expect(totalSpent).toBe(3800);
-    expect(result.budgetSummary?.breakdown).toContain("= $38.00 of your $40.00");
-    expect(result.budgetSummary?.breakdown).toContain("$18.00");
-    expect(result.budgetSummary?.breakdown).toContain("$20.00");
+  const soldOutEvent: EventWithTiers = {
+    ...mockEvents[0],
+    id: "ev-sold-out",
+    title: "Payments Hack Night",
+    category: "Hack night",
+    ticket_tiers: [
+      {
+        id: "t-so-1",
+        name: "General",
+        description: "Sold out",
+        price_cents: 1500,
+        currency: "USD",
+        capacity: 10,
+        sold_count: 10,
+        sort_order: 1,
+      },
+    ],
+  };
+  // Refs follow catalog order: E1..E4 are mockEvents, E5 is the sold-out event.
+  const catalogEvents = [...mockEvents, soldOutEvent];
+  const pick = (over: Partial<Selection>): Selection => ({
+    intent: "discover",
+    event_refs: [],
+    availability: "any",
+    max_price_cents: null,
+    total_budget_cents: null,
+    reply: "",
+    ...over,
   });
 
-  it("Scenario c: returns empty matches when no events match constraints (e.g. impossible budget or category)", () => {
-    const result = findMatchingEvents(mockEvents, {
-      category: "NonExistentCategory",
-      topics: ["quantum teleportation"],
-      totalBudgetCents: 100, // $1
-      count: 2,
+  describe("resolveSelection", () => {
+    it("splits picks into available first and sold out second", () => {
+      const result = resolveSelection(catalogEvents, pick({ event_refs: ["E5", "E1", "E3"] }));
+      expect(result.available.map((e) => e.id)).toEqual(["ev-1", "ev-3"]);
+      expect(result.soldOut.map((e) => e.id)).toEqual(["ev-sold-out"]);
     });
 
-    expect(result.matchedEvents).toHaveLength(0);
-  });
-
-  it("Scenario d: handles 'make it cheaper' follow-up correctly", () => {
-    // Initial result with $40 budget
-    const initial = findMatchingEvents(mockEvents, {
-      category: "Workshop",
-      count: 2,
-      totalBudgetCents: 4000,
-    });
-    expect(initial.matchedEvents).toHaveLength(2);
-
-    // Follow-up: make it cheaper (e.g. lowers target budget or seeks lower priced/free events)
-    const cheaper = findMatchingEvents(mockEvents, {
-      category: "Workshop",
-      count: 2,
-      totalBudgetCents: 4000,
-      followUpIntent: "cheaper",
+    it("returns only sold-out events when the user asks for sold out", () => {
+      const result = resolveSelection(
+        catalogEvents,
+        pick({ event_refs: ["E1", "E2", "E3", "E4", "E5"], availability: "sold_out" }),
+      );
+      expect(result.available).toHaveLength(0);
+      expect(result.soldOut.map((e) => e.id)).toEqual(["ev-sold-out"]);
     });
 
-    // Target budget becomes 75% of $40 = $30. 2 workshops ($20 + $18 = $38) exceed $30!
-    // So it correctly finds 0 combinations that exceed $30, or finds cheaper options.
-    expect(cheaper.notes.some((n) => n.includes("Adjusted target budget"))).toBe(true);
-  });
-
-  it("Scenario e: never returns an event that is not in the data", () => {
-    const result = findMatchingEvents(mockEvents, {
-      topics: ["AI"],
-      freeOnly: true,
+    it("returns only events with seats when the user asks for available", () => {
+      const result = resolveSelection(
+        catalogEvents,
+        pick({ event_refs: ["E1", "E5"], availability: "available" }),
+      );
+      expect(result.available.map((e) => e.id)).toEqual(["ev-1"]);
+      expect(result.soldOut).toHaveLength(0);
     });
 
-    expect(result.matchedEvents).toHaveLength(1);
-    expect(result.matchedEvents[0].id).toBe("ev-3");
-    // Verify every matched event is an exact object from mockEvents
-    for (const ev of result.matchedEvents) {
-      expect(mockEvents.some((m) => m.id === ev.id)).toBe(true);
-    }
+    it("gives one group when the other has no match", () => {
+      const result = resolveSelection(catalogEvents, pick({ event_refs: ["E1", "E2"] }));
+      expect(result.available).toHaveLength(2);
+      expect(result.soldOut).toHaveLength(0);
+    });
+
+    it("never returns an event that is not in the data, and ignores duplicates", () => {
+      const result = resolveSelection(catalogEvents, pick({ event_refs: ["E99", "made-up", "e2", "E2"] }));
+      expect(result.available.map((e) => e.id)).toEqual(["ev-2"]);
+    });
+
+    it("enforces the per-ticket price cap from real tier prices", () => {
+      const result = resolveSelection(
+        catalogEvents,
+        pick({ event_refs: ["E1", "E2", "E3", "E4"], max_price_cents: 1900 }),
+      );
+      expect(result.available.map((e) => e.id)).toEqual(["ev-2", "ev-3"]);
+    });
+
+    it("drops the lowest-ranked events until a total budget fits", () => {
+      // $20 + $18 + $25 = $63 exceeds $40; dropping ev-4 leaves $38.
+      const result = resolveSelection(
+        catalogEvents,
+        pick({ event_refs: ["E1", "E2", "E4"], total_budget_cents: 4000 }),
+      );
+      expect(result.available.map((e) => e.id)).toEqual(["ev-1", "ev-2"]);
+      expect(result.budgetSummary?.totalSpentCents).toBe(3800);
+      expect(result.budgetSummary?.breakdown).toContain("= $38.00 of your $40.00");
+    });
   });
 
-  it("evaluates date constraints properly in America/Los_Angeles", () => {
-    // Sunday 2026-11-15 is weekend
-    expect(matchesDateConstraint("2026-11-15T18:30:00-08:00", "America/Los_Angeles", "weekend")).toBe(true);
-    // Tuesday 2026-11-17 is not weekend
-    expect(matchesDateConstraint("2026-11-17T18:00:00-08:00", "America/Los_Angeles", "weekend")).toBe(false);
-    // Saturday 2026-11-21 matches targetDayOfWeek=6
-    expect(matchesDateConstraint("2026-11-21T09:30:00-08:00", "America/Los_Angeles", "weekend", 6)).toBe(true);
+  describe("buildCatalog", () => {
+    it("lists every event with a ref, live seats and sold-out status", () => {
+      const catalog = buildCatalog(catalogEvents);
+      const rows = catalog.split("\n");
+      expect(rows).toHaveLength(5);
+      expect(rows[0]).toContain("E1 | Hands-on RAG Workshop");
+      expect(rows[0]).toContain("status: TICKETS AVAILABLE");
+      expect(rows[0]).toContain("General Admission $20.00 (15 left)");
+      expect(rows[4]).toContain("E5 | Payments Hack Night");
+      expect(rows[4]).toContain("status: SOLD OUT");
+    });
   });
+
+  describe("fallbackSelect", () => {
+    it("finds a named event by its title words", () => {
+      expect(fallbackSelect("Tell me about the Payments Hack Night", catalogEvents).event_refs).toEqual(["E5"]);
+    });
+
+    it("returns the whole catalog for a broad request", () => {
+      expect(fallbackSelect("Share all the available events", catalogEvents).event_refs).toHaveLength(5);
+    });
+
+    it("recognises a sold-out request", () => {
+      expect(fallbackSelect("Suggest some sold out events", catalogEvents).availability).toBe("sold_out");
+    });
+  });
+
+  describe("planEvents discover replies", () => {
+    it("shows available events and sold-out events as separate groups", async () => {
+      const res = await planEvents([{ role: "user", content: "Show me everything" }], catalogEvents, {});
+      expect(res.message.events).toHaveLength(4);
+      expect(res.message.soldOutEvents?.map((e) => e.id)).toEqual(["ev-sold-out"]);
+      // A list is not a purchase prompt.
+      expect(res.message.actionProposal).toBeUndefined();
+    });
+
+    it("shows only sold-out events when asked, with no purchase prompt", async () => {
+      const res = await planEvents(
+        [{ role: "user", content: "Suggest some sold out events" }],
+        catalogEvents,
+        {},
+      );
+      expect(res.message.events).toBeUndefined();
+      expect(res.message.soldOutEvents?.map((e) => e.id)).toEqual(["ev-sold-out"]);
+    });
+
+    it("says so when nothing is sold out", async () => {
+      const res = await planEvents([{ role: "user", content: "Which events are sold out?" }], mockEvents, {});
+      expect(res.message.events).toBeUndefined();
+      expect(res.message.soldOutEvents).toBeUndefined();
+      expect(res.message.content).toContain("No sold-out events");
+    });
+
+    it("answers about a named sold-out event with that event, not another one", async () => {
+      const res = await planEvents(
+        [{ role: "user", content: "Tell me about the Payments Hack Night" }],
+        catalogEvents,
+        {},
+      );
+      expect(res.message.events).toBeUndefined();
+      expect(res.message.soldOutEvents?.map((e) => e.id)).toEqual(["ev-sold-out"]);
+      expect(res.message.actionProposal?.type).toBe("standby");
+      expect(res.message.actionProposal?.eventId).toBe("ev-sold-out");
+    });
+  });
+
 
   it("Requirement 1: attaches purchase action proposal with 'Should I purchase a ticket?' when seats are available", async () => {
     const res = await planEvents(
@@ -262,7 +348,8 @@ describe("Planner Logic", () => {
       {},
     );
 
-    expect(res.message.events).toBeDefined();
+    expect(res.message.events).toBeUndefined();
+    expect(res.message.soldOutEvents).toHaveLength(1);
     expect(res.message.actionProposal).toBeDefined();
     expect(res.message.actionProposal?.type).toBe("standby");
     expect(res.message.actionProposal?.promptText).toContain("join the standby list");
@@ -596,19 +683,6 @@ describe("Planner Logic", () => {
     });
   });
 
-  describe("Owned Event Exclusion in Discovery", () => {
-    it("excludes events the user already holds a valid ticket for", () => {
-      const result = findMatchingEvents(
-        mockEvents,
-        { topics: ["AI"], count: 3 },
-        [],
-        ["ev-1"], // user already holds a ticket for ev-1
-      );
-
-      expect(result.matchedEvents.some((e) => e.id === "ev-1")).toBe(false);
-      expect(result.ownedExcludedCount).toBe(1);
-    });
-  });
 
   describe("Auth Gate for Persona Queries", () => {
     it("prompts to choose a demo person if no profile is logged in for my_tickets", async () => {
