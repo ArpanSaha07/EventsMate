@@ -1,1 +1,0 @@
-# Assent - an AI payment assistant with human approval

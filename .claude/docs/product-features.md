@@ -37,18 +37,21 @@ Sign-in is a demo persona switcher: seeded fans, holders and an organiser, no pa
 - Event page shows availability per tier, the refund policy in plain words, and standby demand.
 
 ### F2. Buy a ticket
-- Pick a tier and quantity, review the exact total, pay with PayPal (immediate capture).
+- Pick a tier and up to 4 tickets, review the exact total, pay with PayPal (immediate capture).
+- If the seats sell out while the buyer is paying, the payment is refunded in full automatically.
 - Tickets are issued only after the server verifies a completed capture.
 - "My tickets" lists tickets with their status.
 
 ### F3. Go on standby (PayPal hold)
-- On a sold-out tier, a fan requests seats for that one event: quantity, accepted tiers,
-  maximum price per seat, and optional conditions in free text
+- On a sold-out tier, a fan requests seats for that one event: up to 4 seats, which sold-out
+  tiers they accept, and optional conditions in free text
   ("only if both seats are in the same tier", "I need to know by Thursday 6 pm").
-- The fan approves one PayPal authorization covering the worst case (quantity × highest
-  accepted price). Nothing is charged until a match.
+- The fan approves one PayPal authorization covering the worst case (quantity × the most
+  expensive accepted tier). Nothing is charged until a match, and only the actual tier price is
+  captured.
+- One active request per fan per event.
 - The fan can cancel any time before a match; the hold is voided.
-- Requests expire at a stated time; expired holds are voided.
+- Requests end at the release cutoff (2 hours before the event); the hold is then voided.
 
 ### F4. Release a seat
 - A holder releases one or more of their tickets.

@@ -49,9 +49,9 @@ reauthorize, refund) · Webhooks with signature verification · JavaScript SDK v
 |---|---|
 | Project scaffold, health check | Done |
 | Schema, seed, persona switcher, app shell | Done |
-| Events and tiers | Not started |
-| Buy a ticket | Not started |
-| Standby hold | Not started |
+| Events and tiers | Done |
+| Buy a ticket | Built; payment approval not yet exercised end to end |
+| Standby hold | Built; hold approval not yet exercised end to end |
 | Release a seat | Not started |
 | Matching and settlement | Not started |
 | Refund policy reader | Not started |

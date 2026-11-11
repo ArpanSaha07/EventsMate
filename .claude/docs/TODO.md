@@ -6,9 +6,9 @@ be shown working against the real PayPal sandbox before the next item starts.
 - [x] **0. UI pattern approved** (D18, D19).
 - [x] **1. Foundation.** New schema and relative-date seed (events, tiers, personas), persona
       switcher, app shell. Gate: switching persona changes what the shell shows; `/api/events` returns seeded tiers.
-- [ ] **2. F1 Events and tiers.** List and event page. Gate: availability per tier matches the database.
-- [ ] **3. F2 Buy a ticket.** Gate: a sandbox buyer pays and a verified ticket appears in "My tickets".
-- [ ] **4. F3 Standby hold.** Gate: an authorization exists in PayPal, shows as a hold, and cancelling voids it.
+- [x] **2. F1 Events and tiers.** List and event page. Gate: availability per tier matches the database.
+- [ ] **3. F2 Buy a ticket.** (built and verified up to PayPal order creation; gate needs the user to approve a sandbox payment) Gate: a sandbox buyer pays and a verified ticket appears in "My tickets".
+- [ ] **4. F3 Standby hold.** (built and verified up to PayPal order creation; gate needs the user to approve a sandbox hold, then cancel it) Gate: an authorization exists in PayPal, shows as a hold, and cancelling voids it.
 - [ ] **5. F4 Release a seat** with a rule-based refund preview. Gate: release, take back, and cutoff return all work.
 - [ ] **6. F5 Settlement, rule-based matching first.** Gate: release triggers capture, refund and ticket transfer, with PayPal references; a forced capture failure refunds nobody.
 - [ ] **7. F9 Action log.** Gate: every step of item 6 is visible with its reason and reference.

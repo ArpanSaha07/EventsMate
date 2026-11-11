@@ -30,14 +30,20 @@ AskUserQuestion, then move it here with the date. Never settle an open item your
 | D21 | Old schema | Replaced. One migration per feature from here on |
 | D22 | Personas | Seven switchable: 1 organiser, 3 holders, 3 fans (names in `supabase/seed.sql`, approved 2026-11-10) |
 | D23 | Env file | Lives at `frontend/.env.local` |
+| D24 | Order limit | Up to 4 tickets per order, also capped by seats left |
+| D25 | Standby length | A request and its hold stay active until the event's release cutoff, then the hold is voided |
+| D26 | Release cutoff | 2 hours before the event starts: unmatched released seats return to holders and standby ends |
+| D27 | Setup status | Removed from the UI; `/api/health` remains |
+| D28 | Standby price cap | Dropped. Resale is at the tier's face price; the hold is quantity x the most expensive accepted tier, the capture is the actual tier price |
+| D29 | Standby tiers | Only sold-out tiers can be included in a request |
+| D30 | Standby requests | One active request per fan per event |
+| D31 | Standby seats | Up to 4 seats per request |
 
 ## Open (ask when the feature is reached)
 
 | # | Topic | Needed for |
 |---|---|---|
 | O2 | OpenAI model ID | F5-F7 |
-| O3 | How long a standby request lasts by default, and the maximum (PayPal holds last 29 days; honor period 3 days, then reauthorize) | F3 |
-| O4 | Release cutoff: how long before the event an unmatched seat returns to the holder | F4 |
 | O5 | Partial fills: may a request for 3 seats be offered 2? | F5 |
 | O6 | Who absorbs PayPal's non-refunded fee when a holder is refunded | F5, F6 |
 | O7 | Matching trigger: on every release, on a timer, or both | F5 |
