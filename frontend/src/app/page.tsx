@@ -1,26 +1,16 @@
-import { CurrentPersonaCard } from "@/components/shell/CurrentPersonaCard";
-import { SetupStatus } from "@/components/SetupStatus";
+import { EventList } from "@/components/events/EventList";
 
 export default function Home() {
   return (
-    <main className="mx-auto w-full max-w-2xl flex-1 px-4 py-10">
-      <h1 className="text-2xl font-semibold tracking-tight">EventsMate</h1>
-      <p className="mt-2 text-muted-foreground">
-        An AI agent that fills empty seats at sold-out events. Fans wait with a PayPal hold;
-        when a holder releases a seat, the agent resells it and refunds the holder.
+    <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8">
+      <h1 className="text-2xl font-semibold tracking-tight">Events in San Francisco</h1>
+      <p className="mt-1 max-w-2xl text-muted-foreground">
+        Sold out? Go on standby with a PayPal hold. If someone releases a seat, the agent gets it
+        for you and you are only charged then.
       </p>
-
       <div className="mt-6">
-        <CurrentPersonaCard />
+        <EventList />
       </div>
-
-      <h2 className="mt-10 mb-3 text-sm font-medium tracking-wide text-muted-foreground uppercase">
-        Integration status
-      </h2>
-      <SetupStatus />
-      <p className="mt-4 text-sm text-muted-foreground">
-        Every check must pass before payments work. The events list replaces this page next.
-      </p>
     </main>
   );
 }

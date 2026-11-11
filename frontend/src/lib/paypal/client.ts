@@ -1,10 +1,17 @@
 import "server-only";
-import { Client, Environment, OrdersController } from "@paypal/paypal-server-sdk";
+import {
+  Client,
+  Environment,
+  OrdersController,
+  PaymentsController,
+} from "@paypal/paypal-server-sdk";
 
+let client: Client | undefined;
 let orders: OrdersController | undefined;
+let payments: PaymentsController | undefined;
 
 function credentials() {
-  // Sandbox only: live mode is intentionally not implemented for this MVP.
+  // Sandbox only: live mode is intentionally not implemented.
   if (process.env.PAYPAL_ENV !== "sandbox") {
     throw new Error('PayPal is sandbox-only in this project: set PAYPAL_ENV=sandbox.');
   }
@@ -16,17 +23,27 @@ function credentials() {
   return { id, secret };
 }
 
-/** PayPal Orders v2 controller bound to the sandbox environment. Server-only. */
-export function paypalOrders(): OrdersController {
-  if (orders) return orders;
+function paypalClient(): Client {
+  if (client) return client;
   const { id, secret } = credentials();
-  const client = new Client({
+  client = new Client({
     clientCredentialsAuthCredentials: { oAuthClientId: id, oAuthClientSecret: secret },
     environment: Environment.Sandbox,
     timeout: 20_000,
   });
-  orders = new OrdersController(client);
+  return client;
+}
+
+/** PayPal Orders v2 (create, capture, authorize), bound to the sandbox. Server-only. */
+export function paypalOrders(): OrdersController {
+  orders ??= new OrdersController(paypalClient());
   return orders;
+}
+
+/** PayPal Payments v2 (capture authorization, void, reauthorize, refund). Server-only. */
+export function paypalPayments(): PaymentsController {
+  payments ??= new PaymentsController(paypalClient());
+  return payments;
 }
 
 /** Verifies the sandbox credentials by requesting an OAuth token. Used by /api/health. */

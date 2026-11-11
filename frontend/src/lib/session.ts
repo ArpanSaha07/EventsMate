@@ -1,6 +1,7 @@
 import "server-only";
 import { cookies } from "next/headers";
 import { createSessionToken, readSessionToken } from "@/lib/session-token";
+import { AppError } from "@/lib/errors";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 const COOKIE = "em_persona";
@@ -59,4 +60,13 @@ export async function setCurrentProfile(profileId: string): Promise<void> {
     path: "/",
     maxAge: MAX_AGE_SECONDS,
   });
+}
+
+/** The current persona, or a 401 the UI can show. Use in routes that act for someone. */
+export async function requireProfile(): Promise<Profile> {
+  const profile = await getCurrentProfile();
+  if (!profile) {
+    throw new AppError(401, "no_persona", "Choose a demo person first (top right).");
+  }
+  return profile;
 }
