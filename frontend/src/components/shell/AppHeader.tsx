@@ -13,6 +13,7 @@ type NavItem = { href: string; label: string; roles: Persona["role"][] };
 // Only routes that exist are listed; each feature adds its own entry.
 const NAV: NavItem[] = [
   { href: "/", label: "Events", roles: ["attendee", "organiser"] },
+  { href: "/plan", label: "Plan with AI", roles: ["attendee", "organiser"] },
   { href: "/tickets", label: "My tickets", roles: ["attendee", "organiser"] },
   { href: "/standby", label: "Standby", roles: ["attendee", "organiser"] },
 ];
