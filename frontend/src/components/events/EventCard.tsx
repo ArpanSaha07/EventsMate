@@ -57,3 +57,4 @@ export function EventCard({ event }: { event: EventWithTiers }) {
     </Link>
   );
 }
+
