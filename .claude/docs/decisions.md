@@ -61,6 +61,7 @@ AskUserQuestion, then move it here with the date. Never settle an open item your
 | D47 | Notifications (was O8) | In-app only: status and a short explanation on My tickets and Standby. No email |
 | D48 | Agent docs sync (amends D16) | `.claude/` stays canonical. After the `commit-msg` skill, `scripts/sync-agents.sh` asks Codex to mirror `.claude/AGENTS.md`, `docs/` and `SKILLS/` into `.agents/`; Codex runs with write access to `.agents/` only. Claude does not edit `.agents/` by hand |
 | D42 | Organiser UI | A "My events" page at `/manage`, shown only to the organiser persona, for reading and confirming policies; the dashboard (item 11) grows from it |
+| D49 | Plan with AI chat (amends D13) | Conversational event discovery at `/plan` is in scope as a demo extra, not a main feature (it was deferred in `future.md`). On every message the model is given the full live catalog from the database and proposes event refs; code validates them, recomputes sold-out status and prices, and shows events with tickets first and sold-out events second. No pgvector or embeddings. The buy / standby prompt appears only when the reply is about a single event |
 
 ## Open (ask when the feature is reached)
 

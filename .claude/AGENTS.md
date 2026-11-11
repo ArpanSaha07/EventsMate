@@ -12,6 +12,7 @@ The app lives in `frontend/` (Next.js; there is no separate backend).
 | Doc | When |
 |---|---|
 | `.claude/docs/product-features.md` | What the product does, per role |
+| `.claude/docs/features/<feature>.md` | Before touching a feature: its scope, how it works, current state, lackings and bugs. One file per feature |
 | `.claude/docs/decisions.md` | Before any product or technical choice |
 | `.claude/docs/architecture.md` | Data model, state machines, PayPal and AI flows |
 | `.claude/docs/TODO.md` / `STATUS.md` | What to build next / where things stand |
@@ -29,7 +30,8 @@ The app lives in `frontend/` (Next.js; there is no separate backend).
    deterministic code before it changes state or moves money.
 5. **Scope discipline.** Anything outside `product-features.md` goes to `future.md`, not into code.
 6. **Keep docs true.** After each feature, update `STATUS.md`, `TODO.md` and `task-completed.md`;
-   log defects in `bugs.md`.
+   log defects in `bugs.md`. Also create or update the feature's file in `docs/features/`
+   (scope, current state, lackings and bugs).
 7. Secrets live only in `frontend/.env.local`. Never read them aloud, log them or commit them.
 
 ## Commands (run in `frontend/`)

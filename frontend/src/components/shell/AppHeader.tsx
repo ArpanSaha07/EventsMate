@@ -3,6 +3,7 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Sparkles } from "lucide-react";
 import { cn } from "cn";
 import { Badge } from "@/components/ui/badge";
 import { PersonaSwitcher } from "@/components/shell/PersonaSwitcher";
@@ -59,6 +60,38 @@ function PlainNavLinks() {
   ));
 }
 
+function PlanWithAiChip() {
+  const pathname = usePathname();
+  const active = pathname.startsWith("/plan");
+  return (
+    <Link
+      href="/plan"
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        active
+          ? "border-primary/60 bg-primary/10 text-primary font-semibold"
+          : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground"
+      )}
+    >
+      <span>Plan with AI</span>
+      <Sparkles className="h-3 w-3" aria-hidden="true" />
+    </Link>
+  );
+}
+
+function PlanWithAiFallback() {
+  return (
+    <Link
+      href="/plan"
+      className="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full border border-border bg-background px-2.5 text-xs font-medium text-muted-foreground"
+    >
+      <span>Plan with AI</span>
+      <Sparkles className="h-3 w-3" aria-hidden="true" />
+    </Link>
+  );
+}
+
 export function AppHeader() {
   return (
     <header className="sticky top-0 z-40 border-b bg-background/90 backdrop-blur">
@@ -80,6 +113,9 @@ export function AppHeader() {
         >
           Sandbox
         </Badge>
+        <Suspense fallback={<PlanWithAiFallback />}>
+          <PlanWithAiChip />
+        </Suspense>
         <PersonaSwitcher />
       </div>
     </header>
