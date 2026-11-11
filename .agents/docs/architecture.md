@@ -1,0 +1,92 @@
+# Architecture
+
+Proposed design. Items marked (open Ox) wait on `decisions.md`.
+
+## Shape
+
+One Next.js app in `frontend/`. Route Handlers are the backend. Supabase Postgres is the
+system of record, reached only from the server with the service-role key. PayPal sandbox moves
+money. OpenAI proposes; server code validates and executes.
+
+```
+Browser ── Route Handlers ──┬─ Supabase Postgres (state, RPC transactions)
+                            ├─ PayPal sandbox (Orders v2, Payments v2, Webhooks)
+                            └─ OpenAI (structured outputs, tool calls)
+PayPal ── webhook ──────────┘
+```
+
+## Data model (new migration; old `checkouts`/`agent_sessions` per open O12)
+
+| Table | Purpose | Key fields |
+|---|---|---|
+| `profiles` | Seeded demo personas | name, role (`fan`/`organiser`), paypal sandbox email hint |
+| `events` | Event | organiser_id, title, venue, starts_at, ends_at, status, refund_policy_text, refund_rule (jsonb), release_cutoff_at |
+| `ticket_tiers` | Tier per event | event_id, name, price_cents, capacity, sold_count |
+| `orders` | Primary purchase | buyer_id, total_cents, status, paypal_order_id, paypal_capture_id |
+| `tickets` | One seat | tier_id, owner_id, order_id, ticket_number, status, source_capture_id, unit_price_cents |
+| `standby_requests` | A fan's request and hold | fan_id, event_id, quantity, accepted_tier_ids, max_price_cents, conditions_text, conditions (jsonb), status, paypal_order_id, authorization_id, authorized_cents, honor_expires_at, expires_at |
+| `settlements` | One resale of one ticket | ticket_id, request_id, new_ticket_id, capture_id, refund_id, refund_cents, status, idempotency_key |
+| `agent_actions` | Action log | actor, kind, subject ids, reason, paypal_ref, request/response summary, created_at |
+| `paypal_webhook_events` | Inbox | paypal_event_id (unique), type, payload, verified, processed_at |
+
+All money is integer cents, USD. `src/lib/money.ts` holds the only conversions.
+
+## State machines
+
+**Ticket:** `valid` → `released` → `transferred` (holder's old ticket; new `valid` ticket issued to fan)
+`released` → `valid` (holder takes it back, or cutoff passes with no match)
+
+**Standby request:** `draft` → `authorized` → `matched` → `settled`
+`authorized` → `cancelled` | `expired` (hold voided) | `failed` (capture failed)
+
+**Settlement:** `pending` → `captured` → `refunded` → `transferred`
+`pending` → `capture_failed` (no refund, try next request)
+`captured` → `refund_failed` (retry; flagged for reconciliation, never shown as success)
+
+## PayPal flows
+
+| Step | API | Notes |
+|---|---|---|
+| Buy ticket | Orders v2 create (`intent=CAPTURE`), capture | Server computes amount; verify `COMPLETED` before issuing tickets |
+| Standby hold | Orders v2 create (`intent=AUTHORIZE`), authorize after buyer approval | Amount = quantity × highest accepted tier price, capped by max price |
+| Match | Payments v2 capture authorization | Capture actual price (≤ authorized), `final_capture=true`, remainder released |
+| Refund holder | Payments v2 refund capture | Partial refund of the holder's original capture, amount from refund rule |
+| Cancel / expire | Payments v2 void authorization | |
+| Keep hold alive | Payments v2 reauthorize | After the 3-day honor period, within 29 days (open O3) |
+| Reconcile | Webhooks + verify signature | Re-fetch the resource from PayPal; never trust event order |
+
+Every mutating call carries a `PayPal-Request-Id` derived from our row id, so retries are safe.
+
+## Settlement transaction
+
+1. In one Postgres RPC: lock the released ticket and the request, confirm both are still
+   eligible, insert `settlements(pending)` with a unique key on `ticket_id`.
+2. Capture the authorization. On failure: mark `capture_failed`, restore the ticket to
+   `released`, move to the next request.
+3. Refund the holder's capture for `refund_cents`.
+4. In one RPC: mark old ticket `transferred`, insert the fan's new ticket, mark request and
+   settlement complete, write `agent_actions`.
+
+A seat can never be sold twice: step 1's unique key and row locks guarantee it.
+
+## AI workflows (OpenAI, strict JSON schema, re-validated with Zod)
+
+| Workflow | Input | Output | Code check afterwards |
+|---|---|---|---|
+| `read_policy` | Organiser's policy text | Structured refund rule + quoted source sentence per clause | Quote must appear verbatim; percentages and deadlines in range; organiser confirms |
+| `parse_conditions` | Fan's free-text conditions | Structured conditions (same tier, decide-by time) | Unknown conditions are kept as text and shown, never silently dropped |
+| `propose_matches` | Released seats + eligible requests | Allocation list with a reason each | Every pair re-validated for tier, quantity, price cap, conditions, queue tie-break; invalid proposals discarded; rule-based fallback |
+| `command` | User sentence + tools (`find_event`, `my_tickets`, `my_standby`, `preview_release`, `preview_standby`) | A proposed action for the user to confirm | Tools are read-only; the action runs only through the normal confirmed routes |
+
+No model output moves money directly. Model calls are capped per request and time-boxed; on
+failure the UI says so and the rule-based path continues.
+
+## Sponsor tools
+
+- **Render:** hosts the app; needs a public URL for webhooks (open O10).
+- **AG Grid:** organiser data grid. **Bryntum:** organiser calendar (open O9).
+
+## Demo durability
+
+Judging runs Dec 1-15, 2026. Seed data uses dates relative to "now" with a reseed script, so
+events are always upcoming and holds are always inside PayPal's 29-day window.
