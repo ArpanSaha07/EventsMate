@@ -17,3 +17,11 @@ Format:
 - **area:** events, checkout, standby, release, settlement, policy, agent, organiser, webhooks, db, ui, docs
 - One logical change per commit. Mention the TODO item number when it completes one.
 - End with the attribution lines the session provides.
+
+## After the commit message
+
+Run `bash scripts/sync-agents.sh` from the repo root. It asks the Codex agent (headless
+`codex exec`, write access to `.agents/` only) to make `.agents/` match `.claude/`, then
+verifies the result with a diff. Report its outcome. If it fails, say so and show its output;
+do not edit `.agents/` by hand. The synced `.agents/` files belong in the same commit as the
+`.claude/` docs they mirror.

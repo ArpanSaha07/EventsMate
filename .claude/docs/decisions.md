@@ -59,6 +59,7 @@ AskUserQuestion, then move it here with the date. Never settle an open item your
 | D45 | Releasing several tickets | "Release seat" opens one confirm card with that ticket ticked and the holder's other releasable tickets for the same event as checkboxes; one confirmation releases the selection |
 | D46 | Take back | One click, no confirm card; a toast reports the result |
 | D47 | Notifications (was O8) | In-app only: status and a short explanation on My tickets and Standby. No email |
+| D48 | Agent docs sync (amends D16) | `.claude/` stays canonical. After the `commit-msg` skill, `scripts/sync-agents.sh` asks Codex to mirror `.claude/AGENTS.md`, `docs/` and `SKILLS/` into `.agents/`; Codex runs with write access to `.agents/` only. Claude does not edit `.agents/` by hand |
 | D42 | Organiser UI | A "My events" page at `/manage`, shown only to the organiser persona, for reading and confirming policies; the dashboard (item 11) grows from it |
 
 ## Open (ask when the feature is reached)
