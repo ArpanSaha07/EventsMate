@@ -9,18 +9,17 @@ organiser never loses money.
 
 Built for the PayPal AI Hackathon (November 2026).
 
-> **Status: in development.** The table below says what works today. This README is updated as
-> each feature lands.
-
 ## How it works
 
-1. **Standby.** A fan requests seats at a sold-out event (quantity, accepted tiers, price cap,
-   optional conditions in plain words) and approves one PayPal authorization. Nothing is charged.
-2. **Release.** A holder says they can't attend. They see what they would get back and why,
-   then release the seat. It stays theirs until resold.
-3. **Match and settle.** The agent allocates released seats to requests, then for each match:
-   capture the hold → refund the holder → transfer the ticket.
-4. **Organiser view.** Seats recovered, revenue kept, and a log of every action with its
+1. **Standby.** A fan asks for seats at a sold-out event (quantity, accepted tiers, price cap,
+   optional conditions in plain words) and approves one PayPal authorization. It's a hold, not
+   a charge, so the fan doesn't need to keep checking for seats.
+2. **Release.** A holder who can't attend sees what they'd get back and the policy sentence
+   behind it, then releases the seat. The seat stays theirs until it's resold.
+3. **Match and settle.** The agent assigns released seats to waiting requests. For each match it
+   captures the fan's hold, then refunds the holder, then transfers the ticket. If the capture
+   fails, nobody is refunded.
+4. **Organiser view.** Organisers see seats recovered, revenue kept, and every action with its
    PayPal reference.
 
 ## Where AI is used
@@ -33,31 +32,8 @@ Built for the PayPal AI Hackathon (November 2026).
 
 ## PayPal usage (sandbox only)
 
-Orders v2 (capture and authorize intents) · Payments v2 (capture authorization, void,
-reauthorize, refund) · Webhooks with signature verification · JavaScript SDK v6 for buyer approval.
-
-## Honest scope
-
-- Payments run in the **PayPal sandbox only**. No real money moves.
-- Events are **seeded demo events** hosted on EventsMate. Tickets are not valid anywhere else.
-- One merchant account; no payouts to organisers.
-- Sign-in is a demo persona switcher, not real authentication.
-
-## Build status
-
-| Feature | State |
-|---|---|
-| Project scaffold, health check | Done |
-| Schema, seed, persona switcher, app shell | Done |
-| Events and tiers | Done |
-| Buy a ticket | Built; payment approval not yet exercised end to end |
-| Standby hold | Built; hold approval not yet exercised end to end |
-| Release a seat | Not started |
-| Matching and settlement | Not started |
-| Refund policy reader | Not started |
-| Command bar | Not started |
-| Organiser dashboard | Not started |
-| Webhooks and hosted demo | Not started |
+Orders v2 (create, capture and authorize, with capture and authorize intents) · Payments v2
+(capture authorization, void, partial refund) · JavaScript SDK v6 for buyer approval.
 
 ## Stack
 
@@ -65,14 +41,19 @@ Next.js 16 (App Router, Route Handlers) · React 19 · TypeScript · Tailwind CS
 Zod · OpenAI · Supabase Postgres · PayPal server SDK and JS SDK v6 · AG Grid · Bryntum ·
 Render · Vitest.
 
-The app lives in `frontend/`. There is no separate backend service.
+The app lives in `web/`. There is no separate backend service.
+
+## Try it live
+
+EventsMate is live with demo events, tickets and standby requests, so you can run the whole flow yourself: **https://eventsmate.onrender.com/**
+Payments run in the PayPal sandbox, so no real money moves.
 
 ## Local setup
 
 Requires Node.js 22+.
 
 ```bash
-cd frontend
+cd web
 npm install
 cp .env.example .env.local   # then fill in the values below
 npm run dev                  # http://localhost:3000
@@ -92,7 +73,7 @@ The home page and `GET /api/health` show a live check for each integration.
 4. **Session secret.** `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
    into `SESSION_SECRET`.
 
-## Scripts (run in `frontend/`)
+## Scripts (run in `web/`)
 
 | Command | Purpose |
 |---|---|
