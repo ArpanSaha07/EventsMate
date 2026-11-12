@@ -24,8 +24,19 @@ Format:
 
 ## After the commit message
 
-Run `bash scripts/sync-agents.sh` from the repo root. It asks the Codex agent (headless
-`codex exec`, write access to `.agents/` only) to make `.agents/` match `.claude/`, then
-verifies the result with a diff. Report its outcome. If it fails, say so and show its output;
-do not edit `.agents/` by hand. Tell the user that the synced `.agents/` files belong in the
-same commit as the `.claude/` docs they mirror. The sync does not commit either.
+Run `bash scripts/sync-agents.sh` from the repo root, with a Bash timeout of at least 10
+minutes. What it does:
+
+- It compares `.claude/` with `.agents/` first. If they already match, it prints "Nothing to
+  do" and exits within a second.
+- Otherwise it opens a new terminal window where a Codex agent updates a temporary copy of
+  `.agents/`. Codex can write only to that copy. The script waits, checks that the copy
+  exactly matches `.claude/`, and only then copies it into `.agents/`.
+- It mirrors everything in `.claude/` except Claude-only files (`CLAUDE.md`,
+  `CLAUDE.local.md`, settings files, `*.local.*`, `worktrees`). Files that exist only in
+  `.agents/`, such as `AGENTS.md`, are left alone.
+
+Report the outcome in one line. If it fails, say so and show its error message (it explains
+whether the terminal, Codex or the final check failed); do not edit `.agents/` by hand. Tell
+the user that the synced `.agents/` files belong in the same commit as the `.claude/` files
+they mirror, and list them with the files for that commit. The sync does not commit either.

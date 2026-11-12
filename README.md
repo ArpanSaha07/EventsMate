@@ -38,7 +38,7 @@ Orders v2 (create, capture and authorize, with capture and authorize intents) ·
 ## Stack
 
 Next.js 16 (App Router, Route Handlers) · React 19 · TypeScript · Tailwind CSS 4 · shadcn/ui ·
-Zod · OpenAI · Supabase Postgres · PayPal server SDK and JS SDK v6 · AG Grid · Bryntum ·
+Zod · OpenAI · Supabase Postgres · PayPal server SDK and JS SDK v6 ·
 Render · Vitest.
 
 The app lives in `web/`. There is no separate backend service.
