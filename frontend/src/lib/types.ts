@@ -1,4 +1,5 @@
 /** Shapes shared by Route Handlers and client components. No server imports here. */
+import type { StandbyConditions } from "@/lib/conditions";
 import type { RefundRule } from "@/lib/refund-rule";
 
 /** An event as its organiser sees it on "My events". */
@@ -125,6 +126,8 @@ export type MyStandbyRequest = {
   id: string;
   quantity: number;
   conditions_text: string;
+  /** What the agent understood from the note and code enforces. Null: no note, or not read yet. */
+  conditions: StandbyConditions | null;
   status: StandbyStatus;
   /** The PayPal hold: quantity x the most expensive accepted tier. */
   authorized_cents: number;

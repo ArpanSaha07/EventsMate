@@ -96,8 +96,8 @@ A seat can never be sold twice: step 1's row locks and the unique index on live 
 | Workflow | Input | Output | Code check afterwards |
 |---|---|---|---|
 | `read_policy` | Organiser's policy text | Structured refund rule + quoted source sentence per clause | Quote must appear verbatim; percentages and deadlines in range; organiser confirms |
-| `parse_conditions` | Fan's free-text conditions | Structured conditions (same tier, decide-by time) | Unknown conditions are kept as text and shown, never silently dropped |
-| `propose_matches` | Released seats + eligible requests | Allocation list with a reason each | Every pair re-validated for tier, quantity, price cap, conditions, queue tie-break; invalid proposals discarded; rule-based fallback |
+| `parse_conditions` | Fan's note, event timezone, current time | Same tier (with quote), decide-by time (with quote), unsupported parts | Each condition must quote the note; a deadline must be in the future; other parts are kept and shown as not enforced (D54, D55) |
+| `propose_matches` | Released seats + eligible requests, as short refs | Allocation list with a reason each | Every pair re-validated (request, seat, quantity, tier, own seat, same tier, hold); one invalid pair rejects the proposal; used only if it fills more requests than first-come (D56); rule-based fallback. See `features/agent-matching.md` |
 | `command` | User sentence + tools (`find_event`, `my_tickets`, `my_standby`, `preview_release`, `preview_standby`) | A proposed action for the user to confirm | Tools are read-only; the action runs only through the normal confirmed routes |
 
 No model output moves money directly. Model calls are capped per request and time-boxed; on

@@ -13,7 +13,7 @@ be shown working against the real PayPal sandbox before the next item starts.
 - [x] **6. F5 Settlement, rule-based matching first.** Gate: release triggers capture, refund and ticket transfer, with PayPal references; a forced capture failure refunds nobody.
 - [ ] **7. F9 Action log.** Gate: every step of item 6 is visible with its reason and reference.
 - [x] **8. F6 Policy reader.** (built before item 5, decision D32) Gate: a pasted policy becomes a confirmed rule and drives the refund preview.
-- [ ] **9. F5 Agent matching.** Gate: a multi-request, multi-tier case is allocated better than first-come, and an invalid model proposal is rejected by code.
+- [x] **9. F5 Agent matching.** (built ahead of item 7 at the user's request; gate met with the real model, not yet run end to end with PayPal) Gate: a multi-request, multi-tier case is allocated better than first-come, and an invalid model proposal is rejected by code.
 - [ ] **10. F7 Command bar.** Gate: three typed commands each produce the correct confirm card.
 - [ ] **11. F8 Organiser dashboard** (AG Grid, Bryntum). Gate: numbers match the database after a settlement.
 - [ ] **12. F10 Webhooks + deploy on Render.** Gate: a signed sandbox webhook is verified and reconciles state on the hosted URL.

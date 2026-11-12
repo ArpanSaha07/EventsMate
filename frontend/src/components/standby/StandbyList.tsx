@@ -48,6 +48,41 @@ function Panel({ title, children }: { title: string; children: React.ReactNode }
   );
 }
 
+/** What the agent understood from the fan's note, and what it will not enforce. */
+function ConditionsSummary({ request }: { request: MyStandbyRequest }) {
+  const conditions = request.conditions;
+  if (!conditions) {
+    // Only a request still in the queue can be affected by an unread note.
+    if (request.status !== "authorized") return null;
+    return (
+      <p className="mt-1 text-sm text-muted-foreground">
+        The agent has not read this note yet. You will not be matched until it has.
+      </p>
+    );
+  }
+  const understood = [
+    conditions.same_tier && "all seats in the same ticket type",
+    conditions.decide_by && `an answer by ${formatMoment(conditions.decide_by, request.event.timezone)}`,
+  ].filter(Boolean);
+  return (
+    <>
+      {understood.length > 0 && (
+        <p className="mt-1 text-sm">
+          <span className="font-medium">The agent will enforce:</span> {understood.join("; ")}.
+        </p>
+      )}
+      {conditions.unsupported.length > 0 && (
+        <p className="mt-1 text-sm text-amber-900">
+          Not understood, so not enforced: {conditions.unsupported.map((part) => `“${part}”`).join(", ")}.
+        </p>
+      )}
+      {understood.length === 0 && conditions.unsupported.length === 0 && (
+        <p className="mt-1 text-sm text-muted-foreground">The agent found no conditions in this note.</p>
+      )}
+    </>
+  );
+}
+
 export function StandbyList() {
   const { status: personaStatus, current } = usePersona();
   const { status, data, error, reload } = useApi<{ requests: MyStandbyRequest[] }>(
@@ -135,6 +170,9 @@ export function StandbyList() {
                     <p className="mt-1 text-sm text-muted-foreground">
                       Note to the agent: “{request.conditions_text}”
                     </p>
+                  )}
+                  {request.conditions_text && (
+                    <ConditionsSummary request={request} />
                   )}
                 </div>
                 <div className="text-right text-sm">

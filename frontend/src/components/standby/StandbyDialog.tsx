@@ -19,6 +19,7 @@ import { Separator } from "@/components/ui/separator";
 import { formatEventDay, formatMoment } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
 import { MAX_TICKETS_PER_ORDER, isSoldOut, releaseCutoff } from "@/lib/rules";
+import type { StandbyConditions } from "@/lib/conditions";
 import type { EventWithTiers } from "@/lib/types";
 import { postJson } from "@/lib/use-api";
 
@@ -35,7 +36,7 @@ type Props = {
 type Phase =
   | { name: "review" }
   | { name: "verifying" }
-  | { name: "authorized"; cents: number }
+  | { name: "authorized"; cents: number; result: AuthorizeResult }
   /** A released seat was already waiting, so the agent settled straight away. */
   | { name: "settled"; chargedCents: number }
   /** Matched, but PayPal has not confirmed every step yet. */
@@ -45,6 +46,8 @@ type AuthorizeResult = {
   status: string;
   authorizedCents: number;
   capturedCents: number | null;
+  conditions: StandbyConditions | null;
+  expiresAt: string;
 };
 
 /** The confirm card for going on standby: exactly what may be charged, then PayPal approval of the hold. */
@@ -78,7 +81,7 @@ export function StandbyDialog({ event, initialTierId, open, onOpenChange, onAuth
       } else if (result.status === "matched") {
         setPhase({ name: "matched" });
       } else if (result.status === "authorized") {
-        setPhase({ name: "authorized", cents: result.authorizedCents });
+        setPhase({ name: "authorized", cents: result.authorizedCents, result });
       } else {
         // A seat was waiting but PayPal refused the charge: the request is closed.
         throw new Error(
@@ -133,10 +136,38 @@ export function StandbyDialog({ event, initialTierId, open, onOpenChange, onAuth
               </DialogTitle>
               <DialogDescription>
                 PayPal is holding {formatMoney(phase.cents)}. Nothing has been charged. If a seat is
-                released before {cutoff}, the agent gets it for you and charges only the ticket
-                price. Otherwise the hold is released.
+                released before {formatMoment(phase.result.expiresAt, event.timezone)}, the agent gets it
+                for you and charges only the ticket price. Otherwise the hold is released.
               </DialogDescription>
             </DialogHeader>
+            {conditions.trim() !== "" && (
+              <div className="rounded-lg bg-muted px-3 py-2 text-sm">
+                {!phase.result.conditions ? (
+                  <p>The agent could not read your note yet. You will not be matched until it has.</p>
+                ) : (
+                  <>
+                    <p>
+                      <span className="font-medium">From your note, the agent will enforce:</span>{" "}
+                      {[
+                        phase.result.conditions.same_tier && "all seats in the same ticket type",
+                        phase.result.conditions.decide_by &&
+                          `an answer by ${formatMoment(phase.result.conditions.decide_by, event.timezone)}`,
+                      ]
+                        .filter(Boolean)
+                        .join("; ") || "nothing"}
+                      .
+                    </p>
+                    {phase.result.conditions.unsupported.length > 0 && (
+                      <p className="mt-1 text-amber-900">
+                        Not understood, so not enforced:{" "}
+                        {phase.result.conditions.unsupported.map((part) => `“${part}”`).join(", ")}. Cancel
+                        from My standby if that matters.
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
             <DialogFooter>
               <Button variant="outline" onClick={() => onOpenChange(false)}>
                 Done

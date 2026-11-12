@@ -1,4 +1,5 @@
 import "server-only";
+import { parseStandbyConditions, type StandbyConditions } from "@/lib/conditions";
 import { AppError } from "@/lib/errors";
 import { formatMoney } from "@/lib/money";
 import { authorizePayPalOrder, createPayPalOrder, voidAuthorization } from "@/lib/paypal/orders";
@@ -21,10 +22,11 @@ type RequestRow = {
   paypal_order_id: string | null;
   authorization_id: string | null;
   expires_at: string;
+  conditions: unknown;
 };
 
 const ROW_COLUMNS =
-  "id,fan_id,event_id,quantity,status,authorized_cents,captured_cents,paypal_order_id,authorization_id,expires_at";
+  "id,fan_id,event_id,quantity,status,authorized_cents,captured_cents,paypal_order_id,authorization_id,expires_at,conditions";
 
 async function loadOwnRequest(fan: Profile, requestId: string): Promise<RequestRow> {
   const { data, error } = await supabaseAdmin()
@@ -138,6 +140,10 @@ export type StandbyOutcome = {
   authorizedCents: number;
   /** What was charged, once seats were found and PayPal confirmed the capture. */
   capturedCents: number | null;
+  /** What the agent understood from the fan's note. Null: no note, or not read yet. */
+  conditions: StandbyConditions | null;
+  /** When the request ends: the cutoff, or the fan's own deadline if earlier. */
+  expiresAt: string;
 };
 
 function outcomeOf(row: RequestRow): StandbyOutcome {
@@ -147,6 +153,8 @@ function outcomeOf(row: RequestRow): StandbyOutcome {
     status: row.status,
     authorizedCents: row.authorized_cents,
     capturedCents: row.captured_cents,
+    conditions: parseStandbyConditions(row.conditions),
+    expiresAt: row.expires_at,
   };
 }
 
@@ -314,7 +322,7 @@ export async function listMyStandbyRequests(fan: Profile): Promise<MyStandbyRequ
   const { data, error } = await supabaseAdmin()
     .from("standby_requests")
     .select(
-      "id,quantity,accepted_tier_ids,conditions_text,status,authorized_cents,captured_cents,capture_id,authorized_at,expires_at,created_at," +
+      "id,quantity,accepted_tier_ids,conditions_text,conditions,status,authorized_cents,captured_cents,capture_id,authorized_at,expires_at,created_at," +
         "event:events(id,title,venue,city,timezone,starts_at,ends_at,ticket_tiers(id,name,price_cents))",
     )
     .eq("fan_id", fan.id)
@@ -330,6 +338,7 @@ export async function listMyStandbyRequests(fan: Profile): Promise<MyStandbyRequ
   return (data as unknown as Row[])
     .map(({ accepted_tier_ids, event: { ticket_tiers, ...event }, ...rest }) => ({
       ...rest,
+      conditions: parseStandbyConditions(rest.conditions),
       event,
       tiers: ticket_tiers.filter((tier) => accepted_tier_ids.includes(tier.id)),
     }))

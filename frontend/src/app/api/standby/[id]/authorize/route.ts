@@ -3,6 +3,7 @@ import { AppError, errorResponse } from "@/lib/errors";
 import { requireProfile } from "@/lib/session";
 import { runMatchingQuietly } from "@/lib/settlement";
 import { authorizeStandbyRequest, getStandbyOutcome } from "@/lib/standby";
+import { ensureConditionsRead } from "@/lib/standby-conditions";
 
 /**
  * Place the PayPal hold for a fan-approved request and join the queue, then
@@ -19,6 +20,8 @@ export async function POST(_request: Request, ctx: RouteContext<"/api/standby/[i
     }
     const placed = await authorizeStandbyRequest(fan, id);
     if (placed.status === "settled") return Response.json(placed);
+    // D55: read the fan's note before matching, so its conditions are enforced from the start.
+    await ensureConditionsRead(id);
     await runMatchingQuietly(placed.eventId);
     return Response.json(await getStandbyOutcome(fan, id));
   } catch (err) {

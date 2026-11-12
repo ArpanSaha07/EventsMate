@@ -1,5 +1,15 @@
 import "server-only";
-import { planAllocations, type QueuedRequest, type ReleasedSeat } from "@/lib/matching";
+import { proposeMatchesWithModel } from "@/lib/ai/standby-agent";
+import {
+  buildMatchingBrief,
+  choosePlan,
+  planAllocations,
+  validateProposal,
+  worthAskingAgent,
+  type ProposalVerdict,
+  type QueuedRequest,
+  type ReleasedSeat,
+} from "@/lib/matching";
 import { captureAuthorization, refundCapture, voidAuthorization } from "@/lib/paypal/orders";
 import { applicableClause, describeTerms, parseRefundRule, refundAmountCents } from "@/lib/refund-rule";
 import { beforeReleaseCutoff } from "@/lib/rules";
@@ -11,6 +21,7 @@ import {
   type SettlementState,
 } from "@/lib/settlement-flow";
 import { expireDueStandbyRequests } from "@/lib/standby";
+import { ensureConditionsRead } from "@/lib/standby-conditions";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { returnUnmatchedTickets } from "@/lib/tickets";
 
@@ -112,8 +123,14 @@ const deps: SettlementDeps = {
 
 type PlannedItem = { ticket_id: string; refund_cents: number; refund_terms: string; refund_quote: string };
 
-/** Reads the event's released seats and waiting requests and plans who gets what. */
-async function planEvent(eventId: string): Promise<{ requestId: string; items: PlannedItem[] }[]> {
+type PlannedMatch = { requestId: string; items: PlannedItem[]; reason: string | null };
+
+/**
+ * Reads the event's released seats and waiting requests and plans who gets what.
+ * With `askAgent`, the model may propose a better allocation than first-come;
+ * code validates it and falls back to the rules if it is invalid, no better, or unavailable.
+ */
+async function planEvent(eventId: string, askAgent: boolean): Promise<PlannedMatch[]> {
   const db = supabaseAdmin();
 
   const { data: event, error: eventError } = await db
@@ -127,14 +144,14 @@ async function planEvent(eventId: string): Promise<{ requestId: string; items: P
   const [tickets, live, requests] = await Promise.all([
     db
       .from("tickets")
-      .select("id,owner_id,tier_id,unit_price_cents,released_at,release_rule,tier:ticket_tiers(price_cents)")
+      .select("id,owner_id,tier_id,unit_price_cents,released_at,release_rule,tier:ticket_tiers(name,price_cents)")
       .eq("event_id", eventId)
       .eq("status", "released")
       .not("source_capture_id", "is", null),
     db.from("settlements").select("ticket_id").eq("event_id", eventId).neq("status", "capture_failed"),
     db
       .from("standby_requests")
-      .select("id,fan_id,quantity,accepted_tier_ids,authorized_cents,authorized_at")
+      .select("id,fan_id,quantity,accepted_tier_ids,authorized_cents,authorized_at,conditions_text")
       .eq("event_id", eventId)
       .eq("status", "authorized")
       .not("authorization_id", "is", null)
@@ -151,8 +168,9 @@ async function planEvent(eventId: string): Promise<{ requestId: string; items: P
     unit_price_cents: number;
     released_at: string;
     release_rule: unknown;
-    tier: { price_cents: number };
+    tier: { name: string; price_cents: number };
   };
+  const tierNames = new Map<string, string>();
   const busy = new Set((live.data ?? []).map((row) => row.ticket_id as string));
   const now = new Date();
   const refunds = new Map<string, PlannedItem>();
@@ -172,6 +190,7 @@ async function planEvent(eventId: string): Promise<{ requestId: string; items: P
       refund_terms: describeTerms(clause),
       refund_quote: clause.quote,
     });
+    tierNames.set(row.tier_id, row.tier.name);
     seats.push({
       ticketId: row.id,
       tierId: row.tier_id,
@@ -181,18 +200,52 @@ async function planEvent(eventId: string): Promise<{ requestId: string; items: P
     });
   }
 
-  const queue: QueuedRequest[] = (requests.data ?? []).map((row) => ({
-    id: row.id,
-    fanId: row.fan_id,
-    quantity: row.quantity,
-    acceptedTierIds: row.accepted_tier_ids,
-    authorizedCents: row.authorized_cents,
-    authorizedAt: row.authorized_at,
-  }));
+  if (seats.length === 0) return [];
 
-  return planAllocations(seats, queue).map((allocation) => ({
+  const queue: QueuedRequest[] = [];
+  for (const row of requests.data ?? []) {
+    // D55: a note that has not been read yet is read now. A request whose note
+    // still cannot be read is left waiting rather than matched against the fan's wishes.
+    const state = await ensureConditionsRead(row.id);
+    if (!state.read) continue;
+    if (state.conditions.decide_by && new Date(state.conditions.decide_by).getTime() <= now.getTime()) continue;
+    queue.push({
+      id: row.id,
+      fanId: row.fan_id,
+      quantity: row.quantity,
+      acceptedTierIds: row.accepted_tier_ids,
+      authorizedCents: row.authorized_cents,
+      authorizedAt: row.authorized_at,
+      sameTier: state.conditions.same_tier,
+    });
+  }
+
+  const baseline = planAllocations(seats, queue);
+  let verdict: ProposalVerdict | null = null;
+  // D56: the model is asked only when first-come leaves someone waiting.
+  if (askAgent && worthAskingAgent(seats, queue, baseline)) {
+    const brief = buildMatchingBrief(seats, queue, tierNames);
+    try {
+      verdict = validateProposal(await proposeMatchesWithModel(brief.text), brief, seats, queue);
+    } catch (err) {
+      console.error("Agent matching call failed; using first-come rules.", err);
+    }
+    const plan = choosePlan(baseline, verdict);
+    console.info(`Matching for event ${eventId}: ${plan.note}`);
+    return plan.allocations.map((allocation) => ({
+      requestId: allocation.requestId,
+      items: allocation.ticketIds.map((id) => refunds.get(id)!),
+      reason:
+        plan.source === "agent"
+          ? `Agent: ${allocation.reason ?? "this allocation fills more standby requests completely than first-come."}`
+          : null,
+    }));
+  }
+
+  return baseline.map((allocation) => ({
     requestId: allocation.requestId,
     items: allocation.ticketIds.map((id) => refunds.get(id)!),
+    reason: null,
   }));
 }
 
@@ -226,12 +279,14 @@ export async function runMatching(eventId: string): Promise<MatchingSummary> {
   for (const row of inProgress ?? []) summary[await settleRequest(deps, row.id)] += 1;
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
-    const plan = await planEvent(eventId);
+    // The model is consulted once per run; later rounds only redistribute after a failed capture.
+    const plan = await planEvent(eventId, round === 0);
     let claimed = 0;
     for (const allocation of plan) {
       const { error: claimError } = await db.rpc("begin_settlement", {
         p_request_id: allocation.requestId,
         p_items: allocation.items,
+        p_reason: allocation.reason,
       });
       if (claimError) {
         // Something changed since planning (taken back, cancelled, claimed by another run).
