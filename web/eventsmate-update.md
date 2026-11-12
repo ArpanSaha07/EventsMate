@@ -1,6 +1,6 @@
 
 
-● The stack is set up in frontend/ and builds cleanly; it now needs your
+● The stack is set up in web/ and builds cleanly; it now needs your
   credentials for Supabase, PayPal sandbox, and OpenAI before anything can talk
   to a real service.
 
@@ -12,7 +12,7 @@
 
   - App: Next.js 16.4.6, React 19, TypeScript, Tailwind 4, shadcn/ui (the eight
     components the brief lists), Zod, OpenAI SDK, Supabase JS, Vitest. The
-    existing frontend/ scaffold had a broken partial node_modules and no source
+    existing web/ scaffold had a broken partial node_modules and no source
     files, so I reinstalled and added the app source there.
   - PayPal: @paypal/paypal-server-sdk and @paypal/react-paypal-js (v6 entry
     point) are installed and wired:
@@ -32,12 +32,12 @@
 
   Steps for you
 
-  Fill in frontend/.env.local as you go.
+  Fill in web/.env.local as you go.
 
   1. Supabase
      a. Create a project at supabase.com/dashboard.
-     b. In the SQL Editor, run frontend/supabase/migrations/001_initial.sql,
-        then frontend/supabase/seed.sql.
+     b. In the SQL Editor, run web/supabase/migrations/001_initial.sql,
+        then web/supabase/seed.sql.
      c. From Project Settings → API, copy the project URL into SUPABASE_URL and
         the service_role (or sb_secret_…) key into SUPABASE_SERVICE_ROLE_KEY.
   2. PayPal sandbox
@@ -51,7 +51,7 @@
      a. Set OPENAI_API_KEY.
      b. Set OPENAI_MODEL to a current function-calling model your key can use.
   4. Verify
-     a. Run cd frontend && npm run dev and open http://localhost:3000.
+     a. Run cd web && npm run dev and open http://localhost:3000.
      b. All four checks should pass; each failing one says what is wrong.
 
   Things to know
@@ -74,4 +74,4 @@
 
 ✻ Brewed for 6m 51s · done 4:16 PM
 
-※ recap: We're building EventsMate, an AI event concierge with PayPal sandbox checkout, and the stack is now installed and building in the frontend folder. Next, add your Supabase, PayPal sandbox, and OpenAI credentials to frontend/.env.local so I can build the checkout flow. (disable recaps in /config)
+※ recap: We're building EventsMate, an AI event concierge with PayPal sandbox checkout, and the stack is now installed and building in the web folder. Next, add your Supabase, PayPal sandbox, and OpenAI credentials to web/.env.local so I can build the checkout flow. (disable recaps in /config)

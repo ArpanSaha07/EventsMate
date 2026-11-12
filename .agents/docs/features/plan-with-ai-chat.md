@@ -55,16 +55,16 @@ proposes which events to show (rule 4).
 
 | File | Role |
 |---|---|
-| `frontend/src/app/plan/page.tsx` | Page |
-| `frontend/src/components/discovery/PlanChat.tsx` | Chat UI, the two result sections, dialogs |
-| `frontend/src/components/discovery/ActionPrompt.tsx` | Buy / join standby prompt |
-| `frontend/src/components/discovery/SuggestionChips.tsx` | Starter questions |
-| `frontend/src/components/discovery/PersonalScheduleViews.tsx` | Tickets, schedule and standby views |
-| `frontend/src/app/api/plan/route.ts` | API route |
-| `frontend/src/lib/discovery/planner.ts` | Model call, intent handlers, reply text |
-| `frontend/src/lib/discovery/catalog.ts` | Catalog text, schema, validation and split, keyword fallback |
-| `frontend/src/lib/discovery/types.ts` | Shared message types |
-| `frontend/tests/planner.test.ts` | Unit tests (model call mocked off, fallback path) |
+| `web/src/app/plan/page.tsx` | Page |
+| `web/src/components/discovery/PlanChat.tsx` | Chat UI, the two result sections, dialogs |
+| `web/src/components/discovery/ActionPrompt.tsx` | Buy / join standby prompt |
+| `web/src/components/discovery/SuggestionChips.tsx` | Starter questions |
+| `web/src/components/discovery/PersonalScheduleViews.tsx` | Tickets, schedule and standby views |
+| `web/src/app/api/plan/route.ts` | API route |
+| `web/src/lib/discovery/planner.ts` | Model call, intent handlers, reply text |
+| `web/src/lib/discovery/catalog.ts` | Catalog text, schema, validation and split, keyword fallback |
+| `web/src/lib/discovery/types.ts` | Shared message types |
+| `web/tests/planner.test.ts` | Unit tests (model call mocked off, fallback path) |
 
 ## Current state
 

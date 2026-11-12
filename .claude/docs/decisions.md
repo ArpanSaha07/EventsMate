@@ -29,7 +29,7 @@ AskUserQuestion, then move it here with the date. Never settle an open item your
 | D20 | Database workflow | Hosted Supabase; migrations applied with the Supabase CLI (`npm run db:push`, `npm run db:seed`) using `SUPABASE_DB_URL`, which must be the Session pooler URL (the direct host is IPv6-only) |
 | D21 | Old schema | Replaced. One migration per feature from here on |
 | D22 | Personas | Seven switchable: 1 organiser, 3 holders, 3 fans (names in `supabase/seed.sql`, approved 2026-11-10) |
-| D23 | Env file | Lives at `frontend/.env.local` |
+| D23 | Env file | Lives at `web/.env.local` |
 | D24 | Order limit | Up to 4 tickets per order, also capped by seats left |
 | D25 | Standby length | A request and its hold stay active until the event's release cutoff, then the hold is voided |
 | D26 | Release cutoff | 2 hours before the event starts: unmatched released seats return to holders and standby ends |

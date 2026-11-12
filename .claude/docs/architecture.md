@@ -4,7 +4,7 @@ Proposed design. Items marked (open Ox) wait on `decisions.md`.
 
 ## Shape
 
-One Next.js app in `frontend/`. Route Handlers are the backend. Supabase Postgres is the
+One Next.js app in `web/`. Route Handlers are the backend. Supabase Postgres is the
 system of record, reached only from the server with the service-role key. PayPal sandbox moves
 money. OpenAI proposes; server code validates and executes.
 

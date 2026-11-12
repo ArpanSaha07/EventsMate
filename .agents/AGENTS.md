@@ -5,7 +5,7 @@ fans go on standby with a PayPal hold, holders release seats they can't use, and
 captures the hold, refunds the holder and transfers the ticket.
 
 Built for the PayPal AI Hackathon. Deadline: **Nov 12, 2026, 12:00 pm Pacific**.
-The app lives in `frontend/` (Next.js; there is no separate backend).
+The app lives in `web/` (Next.js; there is no separate backend).
 
 ## Read before working
 
@@ -17,7 +17,7 @@ The app lives in `frontend/` (Next.js; there is no separate backend).
 | `.claude/docs/architecture.md` | Data model, state machines, PayPal and AI flows |
 | `.claude/docs/TODO.md` / `STATUS.md` | What to build next / where things stand |
 | `.claude/docs/future.md` | Deferred ideas. Do not build these |
-| `frontend/AGENTS.md` | Next.js 16 differs from training data; read its docs first |
+| `web/AGENTS.md` | Next.js 16 differs from training data; read its docs first |
 
 ## Rules
 
@@ -32,9 +32,9 @@ The app lives in `frontend/` (Next.js; there is no separate backend).
 6. **Keep docs true.** After each feature, update `STATUS.md`, `TODO.md` and `task-completed.md`;
    log defects in `bugs.md`. Also create or update the feature's file in `docs/features/`
    (scope, current state, lackings and bugs).
-7. Secrets live only in `frontend/.env.local`. Never read them aloud, log them or commit them.
+7. Secrets live only in `web/.env.local`. Never read them aloud, log them or commit them.
 
-## Commands (run in `frontend/`)
+## Commands (run in `web/`)
 
 `npm run dev` · `npm run typecheck` · `npm run lint` · `npm test` · `npm run build`
 
